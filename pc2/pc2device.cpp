@@ -13,6 +13,8 @@
  */
 void PC2Device::init() {
     this->send_message({ 0xf1 });
+    // Set the address filter based on the interface's address mask configuration
+    this->set_address_filter(this->pc2->interface->address_mask);
     // TODO: Move this to separate function
     this->send_message({ 0x80, 0x01, 0x00 });
 }
