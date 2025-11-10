@@ -86,18 +86,34 @@ int main(int argc, char** argv) {
         if (source_id == Masterlink::source::a_mem2) {
             BOOST_LOG_TRIVIAL(info) << "Starting N.MUSIC source";
 
-            // Send track text to display
-            DecodedTelegram::TrackText8 text_msg(source_id, "PLAYING");
-            text_msg.src_node = our_node;  // Reply from the node that was asked
-            pc2.beolink->send_telegram(text_msg);
+            // 1. Send distribution request (announces we're starting distribution)
+            DecodedTelegram::DistributionRequest dist_req(source_id);
+            dist_req.src_node = our_node;
+            dist_req.dest_node = from_node; // Send to Audio Master (requester)
+            pc2.beolink->send_telegram(dist_req);
 
-            // Send track info with track number
+            // 2. Send track text to display (first time)
+            DecodedTelegram::TrackText8 text_msg1(source_id, "N.MUSIC");
+            text_msg1.src_node = our_node;
+            pc2.beolink->send_telegram(text_msg1);
+
+            // 3. Send status info
+            DecodedTelegram::StatusInfo status(source_id);
+            status.src_node = our_node;
+            pc2.beolink->send_telegram(status);
+
+            // 4. Send track info with track number
             DecodedTelegram::TrackInfo track_info(source_id, 1);
             track_info.src_node = our_node;
             track_info.dest_node = 0x83; // Broadcast to all
             pc2.beolink->send_telegram(track_info);
 
-            // Enable audio distribution to Masterlink
+            // 5. Send track text to display (second time - for reliability)
+            DecodedTelegram::TrackText8 text_msg2(source_id, "N.MUSIC");
+            text_msg2.src_node = our_node;
+            pc2.beolink->send_telegram(text_msg2);
+
+            // 6. Enable audio distribution to Masterlink
             BOOST_LOG_TRIVIAL(info) << "Enabling audio distribution";
             pc2.mixer->ml_distribute(true);
         } else {

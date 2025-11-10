@@ -166,6 +166,13 @@ namespace DecodedTelegram {
             std::ostream& debug_repr(std::ostream& outputStream);
     };
 
+    class DistributionRequest: public DecodedTelegram {
+        public:
+            DistributionRequest(MasterlinkTelegram & tgram): DecodedTelegram{tgram} { }
+            DistributionRequest(uint8_t source_id); //generates distribution request telegram
+            std::ostream& debug_repr(std::ostream& outputStream);
+    };
+
     class DisplayData: public DecodedTelegram {
         public:
             DisplayData(MasterlinkTelegram & tgram): DecodedTelegram{tgram} { }

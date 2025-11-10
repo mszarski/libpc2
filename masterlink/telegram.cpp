@@ -81,6 +81,14 @@ namespace DecodedTelegram {
         }
     }
 
+    DistributionRequest::DistributionRequest(uint8_t source_id) {
+        this->telegram_type = telegram_types::status;
+        this->payload_type = (payload_types)0x6c; // DISTRIBUTION_REQUEST
+        this->src_src = source_id;
+        this->payload_version = 8;
+        this->payload = { 0x01 };
+    }
+
     AudioBus::AudioBus(MasterlinkTelegram & tgram): DecodedTelegram{tgram} {
         this->payload_type = MasterlinkTelegram::payload_types::audio_bus;
         this->tgram_meaning = unknown;

@@ -126,6 +126,10 @@ std::ostream& DecodedTelegram::TrackText8::debug_repr(std::ostream& outputStream
     return outputStream << analysis;
 }
 
+std::ostream& DecodedTelegram::DistributionRequest::debug_repr(std::ostream& outputStream) {
+    return generic_debug_repr(outputStream, this);
+}
+
 std::ostream& DecodedTelegram::AudioBus::debug_repr(std::ostream& outputStream) {
     std::string analysis;
     debug_field_list fields;
