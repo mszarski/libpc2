@@ -134,3 +134,25 @@ if(UNIX AND NOT APPLE)
 else()
     message(STATUS "Skipping spotify_app (Linux only)")
 endif()
+
+###
+# Spotify HTTP Application (Cross-platform - uses Spotify Web API)
+###
+
+# Find CURL and nlohmann_json
+find_package(CURL REQUIRED)
+find_package(nlohmann_json QUIET)
+
+if(nlohmann_json_FOUND)
+    message(STATUS "Building spotify_http_app (CURL and nlohmann_json found)")
+    add_executable(spotify_http_app examples/spotify_http_app.cpp)
+    target_include_directories(spotify_http_app PUBLIC .)
+    target_link_libraries(spotify_http_app pc2)
+    target_link_libraries(spotify_http_app Boost::log)
+    target_link_libraries(spotify_http_app PkgConfig::LIBUSB)
+    target_link_libraries(spotify_http_app CURL::libcurl)
+    target_link_libraries(spotify_http_app nlohmann_json::nlohmann_json)
+else()
+    message(STATUS "Skipping spotify_http_app (nlohmann_json not found)")
+    message(STATUS "Install with: brew install nlohmann-json (macOS) or sudo apt install nlohmann-json3-dev (Linux)")
+endif()
