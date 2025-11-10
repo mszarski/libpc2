@@ -35,6 +35,7 @@ class Masterlink {
         {Masterlink::source::pc, "PC"},
         {Masterlink::source::dvd2, "DVD2"},
         {Masterlink::source::a_mem2, "A.MEM2"},
+        {Masterlink::source::n_radio, "N.RADIO"},
         {Masterlink::source::doorcam, "DOORCAM"},
         {Masterlink::source::v_aux2, "V.AUX2"},
         {Masterlink::source::v_tape2, "V.TAPE2"},

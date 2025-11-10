@@ -100,3 +100,13 @@ target_link_libraries(libpc2_tests gmock_main)
 target_link_libraries(libpc2_tests PkgConfig::LIBUSB)
 target_link_libraries(libpc2_tests Boost::log)
 target_link_libraries(libpc2_tests ${Protobuf_LIBRARIES})
+
+###
+# Demo Application
+###
+
+add_executable(demo_app examples/demo_app.cpp)
+target_include_directories(demo_app PUBLIC .)
+target_link_libraries(demo_app pc2)
+target_link_libraries(demo_app Boost::log)
+target_link_libraries(demo_app PkgConfig::LIBUSB)

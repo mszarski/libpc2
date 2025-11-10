@@ -23,6 +23,7 @@ PC2::PC2(PC2Interface * interface) {
     this->interface = interface;
     this->interface->pc2 = this;
     this->keystroke_callback = nullptr;
+    this->source_request_callback = nullptr;
 
     this->device = new PC2Device(this);
     this->beolink = new PC2Beolink(this);
