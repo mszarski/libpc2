@@ -148,7 +148,7 @@ namespace DecodedTelegram {
     class TrackInfo: public DecodedTelegram {
         public:
             TrackInfo(MasterlinkTelegram & tgram): DecodedTelegram{tgram} { }
-            TrackInfo(uint8_t source_id); //generates boilerplate reply telegram for a source
+            TrackInfo(uint8_t source_id, uint8_t track_number = 0); //generates boilerplate reply telegram for a source
             std::ostream& debug_repr(std::ostream& outputStream);
     };
 
@@ -156,6 +156,13 @@ namespace DecodedTelegram {
         public:
             StatusInfo(MasterlinkTelegram & tgram): DecodedTelegram{tgram} { }
             StatusInfo(uint8_t source_id); //generates boilerplate reply telegram for a source
+            std::ostream& debug_repr(std::ostream& outputStream);
+    };
+
+    class TrackText8: public DecodedTelegram {
+        public:
+            TrackText8(MasterlinkTelegram & tgram): DecodedTelegram{tgram} { }
+            TrackText8(uint8_t source_id, std::string text); //generates display_data telegram with 8 chars of text
             std::ostream& debug_repr(std::ostream& outputStream);
     };
 

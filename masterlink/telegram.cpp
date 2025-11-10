@@ -44,11 +44,11 @@ namespace DecodedTelegram {
         }
     }
 
-    TrackInfo::TrackInfo(uint8_t source_id) {
+    TrackInfo::TrackInfo(uint8_t source_id, uint8_t track_number) {
         this->telegram_type = telegram_types::status;
         this->payload_type = MasterlinkTelegram::payload_types::track_info;
         this->payload_version = 5;
-        this->payload = { 0x02, source_id, 0x00, 0x02, 0x01, 0x00, 0x00, 0x00 };
+        this->payload = { 0x02, source_id, 0x00, 0x02, 0x01, 0x00, 0x00, track_number };
     }
 
     StatusInfo::StatusInfo(uint8_t source_id) {
@@ -61,6 +61,24 @@ namespace DecodedTelegram {
                 0x00, 0x00, 0xFF, 0x02, 0x01, 0x00, 0x03, 0x01, \
                 0x01, 0x01, 0x03, 0x00, 0x02, 0x00, 0x00, 0x00, \
                 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00};
+    }
+
+    TrackText8::TrackText8(uint8_t source_id, std::string text) {
+        this->telegram_type = telegram_types::info;
+        this->dest_node = 0x83;
+        this->src_src = source_id;
+        this->payload_type = MasterlinkTelegram::payload_types::display_data;
+        this->payload_version = 0;
+        this->payload = { 0x03, 0x01, 0x01, 0x00, 0x00 };
+
+        // Append 8 bytes of text (pad with spaces if shorter, truncate if longer)
+        for(int i = 0; i < 8; i++) {
+            if(i < text.length()) {
+                this->payload.push_back(text[i]);
+            } else {
+                this->payload.push_back(' ');
+            }
+        }
     }
 
     AudioBus::AudioBus(MasterlinkTelegram & tgram): DecodedTelegram{tgram} {
