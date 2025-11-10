@@ -29,15 +29,29 @@ static size_t WriteCallback(void *contents, size_t size, size_t nmemb, void *use
     return size * nmemb;
 }
 
-// Spotify HTTP API client using libcurl
+// Spotify HTTP API client with automatic token refresh
 class SpotifyHTTP {
 private:
     CURL* curl;
     std::string accessToken;
+    std::string refreshToken;
+    std::string clientId;
+    std::string clientSecret;
+    std::chrono::steady_clock::time_point tokenExpiry;
     const std::string apiBase = "https://api.spotify.com/v1";
+    const std::string tokenUrl = "https://accounts.spotify.com/api/token";
 
     std::string makeRequest(const std::string& url, const std::string& method = "GET",
                            const std::string& body = "") {
+        // Check if token needs refresh
+        if (std::chrono::steady_clock::now() >= tokenExpiry) {
+            BOOST_LOG_TRIVIAL(info) << "Access token expired, refreshing...";
+            if (!refreshAccessToken()) {
+                BOOST_LOG_TRIVIAL(error) << "Failed to refresh access token!";
+                return "";
+            }
+        }
+
         std::string response;
 
         if (!curl) {
@@ -72,6 +86,11 @@ private:
         }
 
         CURLcode res = curl_easy_perform(curl);
+
+        // Check for 401 Unauthorized (token invalid)
+        long http_code = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+
         curl_slist_free_all(headers);
 
         if (res != CURLE_OK) {
@@ -79,15 +98,129 @@ private:
             return "";
         }
 
+        // If 401, try refreshing token and retry once
+        if (http_code == 401) {
+            BOOST_LOG_TRIVIAL(warning) << "Got 401 Unauthorized, refreshing token...";
+            if (refreshAccessToken()) {
+                // Retry the request with new token
+                return makeRequest(url, method, body);
+            }
+        }
+
         return response;
     }
 
+    bool refreshAccessToken() {
+        if (refreshToken.empty() || clientId.empty() || clientSecret.empty()) {
+            BOOST_LOG_TRIVIAL(error) << "Missing refresh token or client credentials";
+            return false;
+        }
+
+        CURL* refresh_curl = curl_easy_init();
+        if (!refresh_curl) {
+            return false;
+        }
+
+        // Prepare Basic auth header: base64(client_id:client_secret)
+        std::string credentials = clientId + ":" + clientSecret;
+        std::string credentials_b64;
+
+        // Simple base64 encoding
+        const std::string base64_chars =
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+            "abcdefghijklmnopqrstuvwxyz"
+            "0123456789+/";
+
+        int val = 0, valb = -6;
+        for (unsigned char c : credentials) {
+            val = (val << 8) + c;
+            valb += 8;
+            while (valb >= 0) {
+                credentials_b64.push_back(base64_chars[(val >> valb) & 0x3F]);
+                valb -= 6;
+            }
+        }
+        if (valb > -6) credentials_b64.push_back(base64_chars[((val << 8) >> (valb + 8)) & 0x3F]);
+        while (credentials_b64.size() % 4) credentials_b64.push_back('=');
+
+        struct curl_slist* headers = NULL;
+        std::string authHeader = "Authorization: Basic " + credentials_b64;
+        headers = curl_slist_append(headers, authHeader.c_str());
+        headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded");
+
+        std::string postData = "grant_type=refresh_token&refresh_token=" + refreshToken;
+        std::string response;
+
+        curl_easy_setopt(refresh_curl, CURLOPT_URL, tokenUrl.c_str());
+        curl_easy_setopt(refresh_curl, CURLOPT_POST, 1L);
+        curl_easy_setopt(refresh_curl, CURLOPT_POSTFIELDS, postData.c_str());
+        curl_easy_setopt(refresh_curl, CURLOPT_HTTPHEADER, headers);
+        curl_easy_setopt(refresh_curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+        curl_easy_setopt(refresh_curl, CURLOPT_WRITEDATA, &response);
+
+        CURLcode res = curl_easy_perform(refresh_curl);
+        curl_slist_free_all(headers);
+        curl_easy_cleanup(refresh_curl);
+
+        if (res != CURLE_OK) {
+            BOOST_LOG_TRIVIAL(error) << "Token refresh failed: " << curl_easy_strerror(res);
+            return false;
+        }
+
+        try {
+            auto j = json::parse(response);
+            if (j.contains("access_token")) {
+                accessToken = j["access_token"];
+                int expires_in = j.value("expires_in", 3600);
+                tokenExpiry = std::chrono::steady_clock::now() +
+                             std::chrono::seconds(expires_in - 60); // Refresh 60s early
+
+                BOOST_LOG_TRIVIAL(info) << "Access token refreshed, expires in " << expires_in << " seconds";
+
+                // Save updated token to file
+                saveTokens(j);
+                return true;
+            }
+        } catch (const json::exception& e) {
+            BOOST_LOG_TRIVIAL(error) << "Failed to parse token response: " << e.what();
+        }
+
+        return false;
+    }
+
+    void saveTokens(const json& tokens) {
+        std::string tokenFile = std::string(getenv("HOME")) + "/.spotify_tokens";
+        std::ofstream file(tokenFile);
+        if (file.is_open()) {
+            // Read existing tokens to preserve refresh_token if not in response
+            std::ifstream existing(tokenFile);
+            json existingTokens;
+            if (existing.is_open()) {
+                existing >> existingTokens;
+                existing.close();
+            }
+
+            json toSave = existingTokens;
+            toSave.update(tokens);
+
+            file << toSave.dump(2);
+            file.close();
+        }
+    }
+
 public:
-    SpotifyHTTP(const std::string& token) : accessToken(token) {
+    SpotifyHTTP(const std::string& access, const std::string& refresh,
+                const std::string& clientId, const std::string& clientSecret, int expiresIn)
+        : accessToken(access), refreshToken(refresh), clientId(clientId), clientSecret(clientSecret) {
+
         curl = curl_easy_init();
         if (!curl) {
             BOOST_LOG_TRIVIAL(error) << "Failed to initialize CURL";
         }
+
+        // Set token expiry (refresh 60 seconds before actual expiry)
+        tokenExpiry = std::chrono::steady_clock::now() +
+                     std::chrono::seconds(expiresIn - 60);
     }
 
     ~SpotifyHTTP() {
@@ -202,48 +335,78 @@ public:
     }
 };
 
-// Read Spotify access token from file
-std::string readTokenFromFile(const std::string& filename) {
-    std::ifstream file(filename);
-    if (!file.is_open()) {
-        BOOST_LOG_TRIVIAL(error) << "Failed to open token file: " << filename;
-        return "";
-    }
-
-    std::string token;
-    std::getline(file, token);
-    file.close();
-
-    // Trim whitespace
-    token.erase(0, token.find_first_not_of(" \t\n\r"));
-    token.erase(token.find_last_not_of(" \t\n\r") + 1);
-
-    return token;
-}
-
 int main(int argc, char** argv) {
     // Set up signal handler for graceful shutdown
     signal(SIGINT, signalHandler);
 
-    BOOST_LOG_TRIVIAL(info) << "PC2 Spotify HTTP Application Starting...";
+    BOOST_LOG_TRIVIAL(info) << "PC2 Spotify Application Starting...";
 
-    // Read Spotify access token from file
-    std::string tokenFile = std::string(getenv("HOME")) + "/.spotify_token";
-    std::string accessToken = readTokenFromFile(tokenFile);
+    // Read Spotify tokens and client credentials from JSON files
+    std::string homeDir = std::string(getenv("HOME"));
+    std::string tokenFile = homeDir + "/.spotify_tokens";
+    std::string clientFile = homeDir + "/.spotify_client";
 
-    if (accessToken.empty()) {
-        BOOST_LOG_TRIVIAL(error) << "No Spotify access token found!";
-        BOOST_LOG_TRIVIAL(error) << "Please create " << tokenFile << " with your Spotify access token";
-        BOOST_LOG_TRIVIAL(error) << "Visit https://developer.spotify.com/console/get-users-currently-playing-track/";
-        BOOST_LOG_TRIVIAL(error) << "to generate a token with the required scopes.";
+    // Read tokens
+    std::ifstream tokensInput(tokenFile);
+    if (!tokensInput.is_open()) {
+        BOOST_LOG_TRIVIAL(error) << "Failed to open token file: " << tokenFile;
+        BOOST_LOG_TRIVIAL(error) << "Please run spotify_auth.py to set up Spotify authorization.";
         return 1;
     }
+
+    json tokens;
+    try {
+        tokensInput >> tokens;
+        tokensInput.close();
+    } catch (const json::exception& e) {
+        BOOST_LOG_TRIVIAL(error) << "Failed to parse tokens: " << e.what();
+        return 1;
+    }
+
+    // Read client credentials
+    std::ifstream clientInput(clientFile);
+    if (!clientInput.is_open()) {
+        BOOST_LOG_TRIVIAL(error) << "Failed to open client file: " << clientFile;
+        BOOST_LOG_TRIVIAL(error) << "Please run spotify_auth.py to set up Spotify authorization.";
+        return 1;
+    }
+
+    json clientCreds;
+    try {
+        clientInput >> clientCreds;
+        clientInput.close();
+    } catch (const json::exception& e) {
+        BOOST_LOG_TRIVIAL(error) << "Failed to parse client credentials: " << e.what();
+        return 1;
+    }
+
+    // Extract required fields
+    std::string accessToken = tokens.value("access_token", "");
+    std::string refreshToken = tokens.value("refresh_token", "");
+    std::string clientId = clientCreds.value("client_id", "");
+    std::string clientSecret = clientCreds.value("client_secret", "");
+    int expiresIn = tokens.value("expires_in", 3600);
+
+    if (accessToken.empty() || refreshToken.empty()) {
+        BOOST_LOG_TRIVIAL(error) << "Missing access_token or refresh_token in " << tokenFile;
+        BOOST_LOG_TRIVIAL(error) << "Please run spotify_auth.py to generate tokens.";
+        return 1;
+    }
+
+    if (clientId.empty() || clientSecret.empty()) {
+        BOOST_LOG_TRIVIAL(error) << "Missing client_id or client_secret in " << clientFile;
+        BOOST_LOG_TRIVIAL(error) << "Please run spotify_auth.py to set up credentials.";
+        return 1;
+    }
+
+    BOOST_LOG_TRIVIAL(info) << "Loaded Spotify credentials and tokens";
 
     // Initialize CURL globally
     curl_global_init(CURL_GLOBAL_DEFAULT);
 
-    // Create Spotify HTTP client
-    auto spotify = std::make_shared<SpotifyHTTP>(accessToken);
+    // Create Spotify HTTP client with refresh capability
+    auto spotify = std::make_shared<SpotifyHTTP>(accessToken, refreshToken,
+                                                   clientId, clientSecret, expiresIn);
 
     // Create the custom interface
     SpotifyInterface interface;
@@ -437,7 +600,7 @@ int main(int argc, char** argv) {
     });
 
     BOOST_LOG_TRIVIAL(info) << "Entering event loop. Press Ctrl+C to exit.";
-    BOOST_LOG_TRIVIAL(info) << "Using Spotify Web API with access token from " << tokenFile;
+    BOOST_LOG_TRIVIAL(info) << "Spotify Web API ready with automatic token refresh";
 
     // Run the event loop
     pc2.event_loop(keepRunning);
