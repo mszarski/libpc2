@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.6)
 enable_testing()
 project(pc2)
 
@@ -12,7 +12,18 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 ###
 
 set(Boost_ADDITIONAL_VERSIONS "1.67" "1.67.0")
-find_package(Boost 1.67 REQUIRED COMPONENTS log iostreams system thread)
+find_package(Boost 1.67 REQUIRED COMPONENTS log iostreams thread)
+
+###
+# libusb
+###
+
+# Find PkgConfig
+find_package(PkgConfig REQUIRED)
+
+# Use PkgConfig to find libusb-1.0
+pkg_check_modules(LIBUSB REQUIRED IMPORTED_TARGET libusb-1.0)
+
 add_definitions(-DBOOST_LOG_DYN_LINK)
 
 ### 
@@ -72,18 +83,20 @@ add_test(NAME UnitTests COMMAND libpc2_tests)
 add_executable(libpc2_tests ${TESTING_SRC_FILES} ${SRC_FILES} ${PROTO_SRCS} ${PROTO_HDRS})
 
 target_include_directories(pc2 PUBLIC .)
+target_include_directories(pc2 PRIVATE ${LIBUSB_INCLUDE_DIRS})
 
 target_include_directories(libpc2_tests PUBLIC ${GUnit_SOURCE_DIR}/include)
 target_include_directories(libpc2_tests PUBLIC ${gtest_SOURCE_DIR}/include)
 target_include_directories(libpc2_tests PUBLIC ${gmock_SOURCE_DIR}/include)
+target_include_directories(libpc2_tests PUBLIC ${LIBUSB_INCLUDE_DIRS})
 target_include_directories(libpc2_tests PUBLIC .)
 
-target_link_libraries(pc2 usb-1.0)
+target_link_libraries(pc2 PkgConfig::LIBUSB)
 target_link_libraries(pc2 Boost::log)
 target_link_libraries(pc2 ${Protobuf_LIBRARIES})
 
 target_link_libraries(libpc2_tests gtest_main)
 target_link_libraries(libpc2_tests gmock_main)
-target_link_libraries(libpc2_tests usb-1.0)
+target_link_libraries(libpc2_tests PkgConfig::LIBUSB)
 target_link_libraries(libpc2_tests Boost::log)
 target_link_libraries(libpc2_tests ${Protobuf_LIBRARIES})
