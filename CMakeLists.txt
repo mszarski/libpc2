@@ -110,3 +110,27 @@ target_include_directories(demo_app PUBLIC .)
 target_link_libraries(demo_app pc2)
 target_link_libraries(demo_app Boost::log)
 target_link_libraries(demo_app PkgConfig::LIBUSB)
+
+###
+# Spotify Application (Linux only - requires D-Bus)
+###
+
+if(UNIX AND NOT APPLE)
+    # Find sdbus-c++
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(SDBUS IMPORTED_TARGET sdbus-c++)
+
+    if(SDBUS_FOUND)
+        message(STATUS "Building spotify_app (D-Bus found)")
+        add_executable(spotify_app examples/spotify_app.cpp)
+        target_include_directories(spotify_app PUBLIC .)
+        target_link_libraries(spotify_app pc2)
+        target_link_libraries(spotify_app Boost::log)
+        target_link_libraries(spotify_app PkgConfig::LIBUSB)
+        target_link_libraries(spotify_app PkgConfig::SDBUS)
+    else()
+        message(STATUS "Skipping spotify_app (sdbus-c++ not found)")
+    endif()
+else()
+    message(STATUS "Skipping spotify_app (Linux only)")
+endif()
