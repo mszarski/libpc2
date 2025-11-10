@@ -129,7 +129,11 @@ void PC2Beolink::handle_ml_request(MasterlinkTelegram & mlt) {
 
             // Signal interface that a source has been requested
             if (this->pc2->source_request_callback) {
-                this->pc2->source_request_callback(goto_source.requested_source);
+                this->pc2->source_request_callback(
+                    goto_source.requested_source,
+                    goto_source.dest_node,  // The node being asked (our node address)
+                    goto_source.src_node    // The node that made the request
+                );
             } else {
                 BOOST_LOG_TRIVIAL(debug) << "Source " << (unsigned int)goto_source.requested_source
                                          << " requested, but no callback registered";

@@ -19,7 +19,7 @@ class DemoInterface : public PC2Interface {
 public:
     DemoInterface() {
         // Set the address mask (audio_master, beoport, or promisc)
-        this->address_mask = PC2Interface::address_mask_t::audio_master;
+        this->address_mask = PC2Interface::address_mask_t::beoport;
     }
 
     // This gets called by the library when a Beo4 key is received
@@ -75,30 +75,36 @@ int main(int argc, char** argv) {
 
     // Register source request callback - this is called when another Masterlink device
     // requests a source from this device
-    pc2.source_request_callback = [&pc2](uint8_t source_id) {
+    // Parameters: source_id, our_node_address, requesting_node_address
+    pc2.source_request_callback = [&pc2](uint8_t source_id, uint8_t our_node, uint8_t from_node) {
         BOOST_LOG_TRIVIAL(info) << "Source 0x" << std::hex << (int)source_id
-                                << " requested via Masterlink";
+                                << " requested via Masterlink"
+                                << " (to node 0x" << (int)our_node
+                                << " from node 0x" << (int)from_node << ")";
 
-        // Handle the source request:
-        // - Start audio distribution
-        // - Load the requested source
-        // - Send display data/track info
+        // Check if this is a source we handle (e.g., A.MEM2 = 0x7A)
+        if (source_id == Masterlink::source::a_mem2) {
+            BOOST_LOG_TRIVIAL(info) << "Starting N.MUSIC source";
 
-        // Example: Send track text to display
-        DecodedTelegram::TrackText8 text_msg(source_id, "HELLO!");
-        text_msg.src_node = 0xC1; // A_MASTER
-        pc2.beolink->send_telegram(text_msg);
+            // Send track text to display
+            DecodedTelegram::TrackText8 text_msg(source_id, "PLAYING");
+            text_msg.src_node = our_node;  // Reply from the node that was asked
+            pc2.beolink->send_telegram(text_msg);
 
-        // Example: Send track info with track number
-        DecodedTelegram::TrackInfo track_info(source_id, 1);
-        track_info.src_node = 0xC1;
-        track_info.dest_node = 0x83; // Broadcast
-        pc2.beolink->send_telegram(track_info);
+            // Send track info with track number
+            DecodedTelegram::TrackInfo track_info(source_id, 1);
+            track_info.src_node = our_node;
+            track_info.dest_node = 0x83; // Broadcast to all
+            pc2.beolink->send_telegram(track_info);
 
-        // Enable audio distribution
-        BOOST_LOG_TRIVIAL(info) << "Starting audio distribution for source 0x"
-                                << std::hex << (int)source_id;
-        // pc2.mixer->ml_distribute(true);
+            // Enable audio distribution to Masterlink
+            BOOST_LOG_TRIVIAL(info) << "Enabling audio distribution";
+            pc2.mixer->ml_distribute(true);
+        } else {
+            // Different source requested - stop our distribution
+            BOOST_LOG_TRIVIAL(info) << "Other source requested - stopping distribution";
+            pc2.mixer->ml_distribute(false);
+        }
     };
 
     // Open the PC2 device

@@ -90,7 +90,7 @@ class PC2 {
     bool open();
     PC2Interface *interface;
     std::function<void(Beo4::keycode)> keystroke_callback;
-    std::function<void(uint8_t)> source_request_callback;
+    std::function<void(uint8_t, uint8_t, uint8_t)> source_request_callback;
     PC2Device *device;
     PC2Mixer *mixer;
     PC2Beolink *beolink;
