@@ -95,9 +95,23 @@ namespace DecodedTelegram {
         }
     }
 
+    DistributionRequest::DistributionRequest(MasterlinkTelegram & tgram): DecodedTelegram{tgram} {
+        this->payload_type = MasterlinkTelegram::payload_types::distribution_request;
+        this->tgram_meaning = unknown;
+        this->requested_source = 0;
+
+        // Decode DISTRIBUTION_REQUEST telegram
+        if(this->telegram_type == telegram_types::status) {
+            if(this->payload.size() >= 1 && this->payload_version == 8) {
+                this->tgram_meaning = request_distribution;
+                this->requested_source = this->src_src;  // Source is in src_src field
+            }
+        }
+    }
+
     DistributionRequest::DistributionRequest(uint8_t source_id) {
         this->telegram_type = telegram_types::status;
-        this->payload_type = (payload_types)0x6c; // DISTRIBUTION_REQUEST
+        this->payload_type = MasterlinkTelegram::payload_types::distribution_request;
         this->src_src = source_id;
         this->payload_version = 8;
         this->payload = { 0x01 };
@@ -143,6 +157,8 @@ namespace DecodedTelegram {
                 return new GotoSource(tgram);
             case MasterlinkTelegram::payload_types::status_info:
                 return new StatusInfo(tgram);
+            case MasterlinkTelegram::payload_types::distribution_request:
+                return new DistributionRequest(tgram);
             case MasterlinkTelegram::payload_types::master_present:
                 return new MasterPresent(tgram);
             default:

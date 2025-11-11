@@ -93,6 +93,7 @@ class PC2 {
     std::function<void(uint8_t, uint8_t, uint8_t)> source_request_callback;
     std::function<void(uint8_t)> status_info_callback;  // Called when STATUS_INFO telegram received (param: active_source)
     std::function<void(uint8_t)> audio_bus_callback;     // Called when AUDIO_BUS distributing telegram received (param: active_source)
+    std::function<void(uint8_t, uint8_t, uint8_t)> distribution_request_callback;  // Called when DISTRIBUTION_REQUEST received (params: source_id, our_node, from_node)
     PC2Device *device;
     PC2Mixer *mixer;
     PC2Beolink *beolink;

@@ -598,8 +598,8 @@ int main(int argc, char** argv) {
             }
         };
 
-        // Register source request callback
-        pc2->source_request_callback = handleSourceRequest;
+        // Register distribution request callback
+        pc2->distribution_request_callback = handleSourceRequest;
 
         // Register STATUS_INFO callback - called when we receive a STATUS_INFO telegram
         // This tells us which source the audio master has switched to
@@ -613,28 +613,6 @@ int main(int argc, char** argv) {
                 BOOST_LOG_TRIVIAL(info) << "Audio master switched away from our source (0x"
                                         << std::hex << (int)our_source
                                         << ") - stopping Spotify and distribution";
-                activeSource.store(0);
-                pc2->mixer->ml_distribute(false);
-                spotify->pause();
-            }
-        };
-
-        // Register AUDIO_BUS callback - called when we receive an AUDIO_BUS telegram
-        // This tells us which source is currently being distributed on the bus
-        pc2->audio_bus_callback = [&](uint8_t active_source_id) {
-            if (active_source_id == 0) {
-                BOOST_LOG_TRIVIAL(info) << "AUDIO_BUS received: No active distribution";
-            } else {
-                BOOST_LOG_TRIVIAL(info) << "AUDIO_BUS received: Distributing source = 0x"
-                                        << std::hex << (int)active_source_id;
-            }
-
-            uint8_t our_source = activeSource.load();
-            // If someone else is distributing and it's not us, stop our distribution
-            if (our_source != 0 && active_source_id != 0 && active_source_id != our_source) {
-                BOOST_LOG_TRIVIAL(info) << "Another device is distributing (0x"
-                                        << std::hex << (int)active_source_id
-                                        << ") - stopping Spotify and our distribution";
                 activeSource.store(0);
                 pc2->mixer->ml_distribute(false);
                 spotify->pause();

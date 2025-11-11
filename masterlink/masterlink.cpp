@@ -64,6 +64,29 @@ void PC2Beolink::send_shutdown_all() {
 void PC2Beolink::handle_ml_status(MasterlinkTelegram &mlt) {
     BOOST_LOG_TRIVIAL(info) << "Handling status telegram";
 
+    // Handle DISTRIBUTION_REQUEST telegram
+    if(mlt.payload_type == mlt.payload_types::distribution_request) {
+        DecodedTelegram::DistributionRequest dist_req(mlt);
+        if(dist_req.tgram_meaning == DecodedTelegram::DistributionRequest::distribution_request_tgram_meanings::request_distribution) {
+            BOOST_LOG_TRIVIAL(info) << "DISTRIBUTION_REQUEST: Source 0x"
+                                    << std::hex << (int)dist_req.requested_source
+                                    << " requested (to node 0x" << (int)mlt.dest_node
+                                    << " from node 0x" << (int)mlt.src_node << ")";
+
+            // Signal interface that a distribution request was received
+            if (this->pc2->distribution_request_callback) {
+                this->pc2->distribution_request_callback(
+                    dist_req.requested_source,
+                    mlt.dest_node,  // The node being asked (our node address)
+                    mlt.src_node    // The node that made the request
+                );
+            } else {
+                BOOST_LOG_TRIVIAL(debug) << "Distribution for source 0x" << std::hex << (int)dist_req.requested_source
+                                         << " requested, but no callback registered";
+            }
+        }
+    }
+
     // Handle STATUS_INFO telegram
     if(mlt.payload_type == mlt.payload_types::status_info) {
         DecodedTelegram::StatusInfo status_info(mlt);

@@ -56,6 +56,7 @@ class MasterlinkTelegram {
             status_info = 0x87,
             track_info = 0x44,
             release = 0x11,
+            distribution_request = 0x6c,
         };
 
         std::map<uint8_t, std::string> payload_type_name = {
@@ -175,7 +176,14 @@ namespace DecodedTelegram {
 
     class DistributionRequest: public DecodedTelegram {
         public:
-            DistributionRequest(MasterlinkTelegram & tgram): DecodedTelegram{tgram} { }
+            enum distribution_request_tgram_meanings {
+                unknown,
+                request_distribution,  // STATUS telegram requesting distribution
+            } distribution_request_tgram_meanings;
+            enum distribution_request_tgram_meanings tgram_meaning;
+            uint8_t requested_source;  // The source being requested for distribution
+
+            DistributionRequest(MasterlinkTelegram & tgram);
             DistributionRequest(uint8_t source_id); //generates distribution request telegram
             std::ostream& debug_repr(std::ostream& outputStream);
     };

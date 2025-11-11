@@ -89,11 +89,11 @@ int main(int argc, char** argv) {
     // Track our active source
     uint8_t our_active_source = 0;
 
-    // Register source request callback - this is called when another Masterlink device
-    // requests a source from this device
+    // Register distribution request callback - this is called when another Masterlink device
+    // requests distribution of a source from this device
     // Parameters: source_id, our_node_address, requesting_node_address
-    pc2.source_request_callback = [&pc2, testMode, &our_active_source](uint8_t source_id, uint8_t our_node, uint8_t from_node) {
-        BOOST_LOG_TRIVIAL(info) << "Source 0x" << std::hex << (int)source_id
+    pc2.distribution_request_callback = [&pc2, testMode, &our_active_source](uint8_t source_id, uint8_t our_node, uint8_t from_node) {
+        BOOST_LOG_TRIVIAL(info) << "DISTRIBUTION_REQUEST: Source 0x" << std::hex << (int)source_id
                                 << " requested via Masterlink"
                                 << " (to node 0x" << (int)our_node
                                 << " from node 0x" << (int)from_node << ")";
@@ -169,30 +169,6 @@ int main(int argc, char** argv) {
             BOOST_LOG_TRIVIAL(info) << "Audio master switched away from our source (0x"
                                     << std::hex << (int)our_active_source
                                     << ") - stopping distribution";
-            our_active_source = 0;
-            if (testMode) {
-                BOOST_LOG_TRIVIAL(info) << "[TEST] Would disable audio distribution";
-            } else {
-                pc2.mixer->ml_distribute(false);
-            }
-        }
-    };
-
-    // Register AUDIO_BUS callback - called when we receive an AUDIO_BUS telegram
-    // This tells us which source is currently being distributed on the bus
-    pc2.audio_bus_callback = [&pc2, testMode, &our_active_source](uint8_t active_source) {
-        if (active_source == 0) {
-            BOOST_LOG_TRIVIAL(info) << "AUDIO_BUS received: No active distribution";
-        } else {
-            BOOST_LOG_TRIVIAL(info) << "AUDIO_BUS received: Distributing source = 0x"
-                                    << std::hex << (int)active_source;
-        }
-
-        // If someone else is distributing and it's not us, stop our distribution
-        if (our_active_source != 0 && active_source != 0 && active_source != our_active_source) {
-            BOOST_LOG_TRIVIAL(info) << "Another device is distributing (0x"
-                                    << std::hex << (int)active_source
-                                    << ") - stopping our distribution";
             our_active_source = 0;
             if (testMode) {
                 BOOST_LOG_TRIVIAL(info) << "[TEST] Would disable audio distribution";
