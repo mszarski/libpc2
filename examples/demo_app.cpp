@@ -118,7 +118,7 @@ int main(int argc, char** argv) {
                 pc2.beolink->send_telegram(dist_req);
 
                 // 2. Send track text to display (first time)
-                DecodedTelegram::TrackText8 text_msg1(source_id, "N.MUSIC");
+                DecodedTelegram::TrackText8 text_msg1(source_id, "HELLO");
                 text_msg1.src_node = our_node;
                 pc2.beolink->send_telegram(text_msg1);
 
@@ -134,7 +134,7 @@ int main(int argc, char** argv) {
                 pc2.beolink->send_telegram(track_info);
 
                 // 5. Send track text to display (second time - for reliability)
-                DecodedTelegram::TrackText8 text_msg2(source_id, "N.MUSIC");
+                DecodedTelegram::TrackText8 text_msg2(source_id, "HELLO");
                 text_msg2.src_node = our_node;
                 pc2.beolink->send_telegram(text_msg2);
 

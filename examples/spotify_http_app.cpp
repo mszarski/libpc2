@@ -215,7 +215,9 @@ public:
 
         curl = curl_easy_init();
         if (!curl) {
-            BOOST_LOG_TRIVIAL(error) << "Failed to initialize CURL";
+            BOOST_LOG_TRIVIAL(error) << "Failed to initialize CURL easy handle!";
+            BOOST_LOG_TRIVIAL(error) << "This usually means curl_global_init() was not called or failed";
+            throw std::runtime_error("CURL initialization failed");
         }
 
         // Set token expiry (refresh 60 seconds before actual expiry)
@@ -397,6 +399,14 @@ int main(int argc, char** argv) {
     // Set up signal handler for graceful shutdown
     signal(SIGINT, signalHandler);
 
+    // Initialize CURL globally FIRST (must be done before any CURL operations)
+    CURLcode curl_init_result = curl_global_init(CURL_GLOBAL_ALL);
+    if (curl_init_result != CURLE_OK) {
+        BOOST_LOG_TRIVIAL(error) << "Failed to initialize CURL globally: " << curl_easy_strerror(curl_init_result);
+        return 1;
+    }
+    BOOST_LOG_TRIVIAL(debug) << "CURL initialized successfully";
+
     if (testMode) {
         BOOST_LOG_TRIVIAL(info) << "PC2 Spotify Application Starting in TEST MODE (no hardware required)...";
     } else {
@@ -463,12 +473,16 @@ int main(int argc, char** argv) {
 
     BOOST_LOG_TRIVIAL(info) << "Loaded Spotify credentials and tokens";
 
-    // Initialize CURL globally
-    curl_global_init(CURL_GLOBAL_DEFAULT);
-
     // Create Spotify HTTP client with refresh capability
-    auto spotify = std::make_shared<SpotifyHTTP>(accessToken, refreshToken,
-                                                   clientId, clientSecret, expiresIn);
+    std::shared_ptr<SpotifyHTTP> spotify;
+    try {
+        spotify = std::make_shared<SpotifyHTTP>(accessToken, refreshToken,
+                                                 clientId, clientSecret, expiresIn);
+    } catch (const std::exception& e) {
+        BOOST_LOG_TRIVIAL(error) << "Failed to create Spotify HTTP client: " << e.what();
+        curl_global_cleanup();
+        return 1;
+    }
 
     // Create the custom interface
     SpotifyInterface interface;
@@ -536,8 +550,10 @@ int main(int argc, char** argv) {
             }
 
             // 7. Start playing liked songs collection
-            BOOST_LOG_TRIVIAL(info) << "Starting liked songs collection";
-            spotify->playContext("spotify:user:spotify:collection");
+            // Note: The collection URI might not work for all accounts
+            // Alternative: use spotify->play() to resume current playback
+            BOOST_LOG_TRIVIAL(info) << "Starting playback (resuming or playing liked songs)";
+            spotify->play();  // Just resume playback instead of trying to play a specific collection
         } else {
             // Different source requested - stop our distribution
             BOOST_LOG_TRIVIAL(info) << "Other source requested - stopping distribution";
@@ -603,7 +619,17 @@ int main(int argc, char** argv) {
     }
 
     // Start track metadata update thread with scrolling text
-    std::thread trackUpdateThread([&]() {
+    // Note: This thread needs its own SpotifyHTTP instance because CURL handles are not thread-safe
+    std::shared_ptr<SpotifyHTTP> spotifyTrackThread;
+    try {
+        spotifyTrackThread = std::make_shared<SpotifyHTTP>(accessToken, refreshToken,
+                                                             clientId, clientSecret, expiresIn);
+    } catch (const std::exception& e) {
+        BOOST_LOG_TRIVIAL(error) << "Failed to create Spotify HTTP client for track thread: " << e.what();
+        // Continue anyway, track updates just won't work
+    }
+
+    std::thread trackUpdateThread([&, spotifyTrackThread]() {
         std::string fullText;
         size_t scrollPosition = 0;
         auto lastScrollTime = std::chrono::steady_clock::now();
@@ -614,14 +640,15 @@ int main(int argc, char** argv) {
         while (trackUpdateRunning) {
             auto now = std::chrono::steady_clock::now();
 
-            // Only update metadata if we're the active source
-            if (activeSource != 0) {
+            // Only update metadata if we're the active source AND actually playing
+            if (activeSource != 0 && spotifyTrackThread) {
                 // Fetch metadata from Spotify API every 1 second
                 if (now - lastMetadataFetch >= metadataInterval) {
                     lastMetadataFetch = now;
 
-                    std::string currentTrack = spotify->getCurrentTrack();
-                    std::string artist = spotify->getCurrentArtist();
+
+                    std::string currentTrack = spotifyTrackThread->getCurrentTrack();
+                    std::string artist = spotifyTrackThread->getCurrentArtist();
 
                     // Check if track changed
                     if (!currentTrack.empty() && currentTrack != lastTrackTitle) {
