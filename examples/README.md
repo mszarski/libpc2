@@ -17,9 +17,36 @@ The executable will be created at `build/demo_app`.
 
 ## Running
 
+### Normal Mode
+
 ```bash
 ./build/demo_app
 ```
+
+This runs the app normally, connecting to PC2 hardware and sending all telegrams to Masterlink.
+
+### Test Mode
+
+```bash
+./build/demo_app --test-mode
+# or
+./build/demo_app -t
+```
+
+Test mode connects to PC2 hardware and receives Beo4 input and source requests, but **does not send any telegrams**. Instead, it logs what would be sent. This is useful for:
+
+- Verifying PC2 hardware connection works
+- Testing Beo4 remote input without affecting Masterlink
+- Debugging callback logic without side effects
+- Learning what telegrams would be sent in response to actions
+
+**Test mode features:**
+- ✅ PC2 device connection established
+- ✅ Beo4 remote input received and logged
+- ✅ Source requests received and logged
+- ✅ Shows what telegrams would be sent (but doesn't send them)
+- ❌ No actual Masterlink telegrams transmitted
+- ❌ No audio distribution changes
 
 Press `Ctrl+C` to exit gracefully.
 

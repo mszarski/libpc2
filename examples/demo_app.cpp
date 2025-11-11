@@ -33,10 +33,23 @@ public:
 };
 
 int main(int argc, char** argv) {
+    // Check for test mode flag
+    bool testMode = false;
+    for (int i = 1; i < argc; i++) {
+        if (std::string(argv[i]) == "--test-mode" || std::string(argv[i]) == "-t") {
+            testMode = true;
+            break;
+        }
+    }
+
     // Set up signal handler for graceful shutdown
     signal(SIGINT, signalHandler);
 
-    BOOST_LOG_TRIVIAL(info) << "PC2 Demo Application Starting...";
+    if (testMode) {
+        BOOST_LOG_TRIVIAL(info) << "PC2 Demo Application Starting in TEST MODE (hardware connected, no telegrams sent)...";
+    } else {
+        BOOST_LOG_TRIVIAL(info) << "PC2 Demo Application Starting...";
+    }
 
     // Create the custom interface
     DemoInterface interface;
@@ -76,7 +89,7 @@ int main(int argc, char** argv) {
     // Register source request callback - this is called when another Masterlink device
     // requests a source from this device
     // Parameters: source_id, our_node_address, requesting_node_address
-    pc2.source_request_callback = [&pc2](uint8_t source_id, uint8_t our_node, uint8_t from_node) {
+    pc2.source_request_callback = [&pc2, testMode](uint8_t source_id, uint8_t our_node, uint8_t from_node) {
         BOOST_LOG_TRIVIAL(info) << "Source 0x" << std::hex << (int)source_id
                                 << " requested via Masterlink"
                                 << " (to node 0x" << (int)our_node
@@ -86,40 +99,57 @@ int main(int argc, char** argv) {
         if (source_id == Masterlink::source::a_mem2) {
             BOOST_LOG_TRIVIAL(info) << "Starting N.MUSIC source";
 
-            // 1. Send distribution request (announces we're starting distribution)
-            DecodedTelegram::DistributionRequest dist_req(source_id);
-            dist_req.src_node = our_node;
-            dist_req.dest_node = from_node; // Send to Audio Master (requester)
-            pc2.beolink->send_telegram(dist_req);
+            if (testMode) {
+                // In test mode, just log what we would send
+                BOOST_LOG_TRIVIAL(info) << "[TEST] Would send DistributionRequest (src_node=0x"
+                                        << std::hex << (int)our_node
+                                        << ", dest_node=0x" << (int)from_node << ")";
+                BOOST_LOG_TRIVIAL(info) << "[TEST] Would send TrackText8: 'N.MUSIC'";
+                BOOST_LOG_TRIVIAL(info) << "[TEST] Would send StatusInfo";
+                BOOST_LOG_TRIVIAL(info) << "[TEST] Would send TrackInfo (track 1)";
+                BOOST_LOG_TRIVIAL(info) << "[TEST] Would send TrackText8: 'N.MUSIC' (again)";
+                BOOST_LOG_TRIVIAL(info) << "[TEST] Would enable audio distribution";
+            } else {
+                // Normal mode - actually send telegrams
+                // 1. Send distribution request (announces we're starting distribution)
+                DecodedTelegram::DistributionRequest dist_req(source_id);
+                dist_req.src_node = our_node;
+                dist_req.dest_node = from_node; // Send to Audio Master (requester)
+                pc2.beolink->send_telegram(dist_req);
 
-            // 2. Send track text to display (first time)
-            DecodedTelegram::TrackText8 text_msg1(source_id, "N.MUSIC");
-            text_msg1.src_node = our_node;
-            pc2.beolink->send_telegram(text_msg1);
+                // 2. Send track text to display (first time)
+                DecodedTelegram::TrackText8 text_msg1(source_id, "N.MUSIC");
+                text_msg1.src_node = our_node;
+                pc2.beolink->send_telegram(text_msg1);
 
-            // 3. Send status info
-            DecodedTelegram::StatusInfo status(source_id);
-            status.src_node = our_node;
-            pc2.beolink->send_telegram(status);
+                // 3. Send status info
+                DecodedTelegram::StatusInfo status(source_id);
+                status.src_node = our_node;
+                pc2.beolink->send_telegram(status);
 
-            // 4. Send track info with track number
-            DecodedTelegram::TrackInfo track_info(source_id, 1);
-            track_info.src_node = our_node;
-            track_info.dest_node = 0x83; // Broadcast to all
-            pc2.beolink->send_telegram(track_info);
+                // 4. Send track info with track number
+                DecodedTelegram::TrackInfo track_info(source_id, 1);
+                track_info.src_node = our_node;
+                track_info.dest_node = 0x83; // Broadcast to all
+                pc2.beolink->send_telegram(track_info);
 
-            // 5. Send track text to display (second time - for reliability)
-            DecodedTelegram::TrackText8 text_msg2(source_id, "N.MUSIC");
-            text_msg2.src_node = our_node;
-            pc2.beolink->send_telegram(text_msg2);
+                // 5. Send track text to display (second time - for reliability)
+                DecodedTelegram::TrackText8 text_msg2(source_id, "N.MUSIC");
+                text_msg2.src_node = our_node;
+                pc2.beolink->send_telegram(text_msg2);
 
-            // 6. Enable audio distribution to Masterlink
-            BOOST_LOG_TRIVIAL(info) << "Enabling audio distribution";
-            pc2.mixer->ml_distribute(true);
+                // 6. Enable audio distribution to Masterlink
+                BOOST_LOG_TRIVIAL(info) << "Enabling audio distribution";
+                pc2.mixer->ml_distribute(true);
+            }
         } else {
             // Different source requested - stop our distribution
             BOOST_LOG_TRIVIAL(info) << "Other source requested - stopping distribution";
-            pc2.mixer->ml_distribute(false);
+            if (testMode) {
+                BOOST_LOG_TRIVIAL(info) << "[TEST] Would disable audio distribution";
+            } else {
+                pc2.mixer->ml_distribute(false);
+            }
         }
     };
 
@@ -132,8 +162,16 @@ int main(int argc, char** argv) {
     BOOST_LOG_TRIVIAL(info) << "PC2 device opened successfully";
 
     // Broadcast timestamp (optional - helps synchronize B&O devices)
-    pc2.beolink->broadcast_timestamp();
+    if (testMode) {
+        BOOST_LOG_TRIVIAL(info) << "[TEST] Would broadcast timestamp";
+    } else {
+        pc2.beolink->broadcast_timestamp();
+    }
 
+    if (testMode) {
+        BOOST_LOG_TRIVIAL(info) << "TEST MODE: PC2 hardware connected, Beo4 input working, but NO telegrams will be sent";
+        BOOST_LOG_TRIVIAL(info) << "Press buttons on Beo4 remote or request source on Masterlink to see logs";
+    }
     BOOST_LOG_TRIVIAL(info) << "Entering event loop. Press Ctrl+C to exit.";
 
     // Run the event loop - this processes all PC2/Masterlink messages
@@ -142,7 +180,11 @@ int main(int argc, char** argv) {
     BOOST_LOG_TRIVIAL(info) << "Event loop exited. Shutting down...";
 
     // Cleanup - send shutdown to all devices
-    pc2.beolink->send_shutdown_all();
+    if (testMode) {
+        BOOST_LOG_TRIVIAL(info) << "[TEST] Would send shutdown to all devices";
+    } else {
+        pc2.beolink->send_shutdown_all();
+    }
 
     BOOST_LOG_TRIVIAL(info) << "Demo application terminated.";
 
