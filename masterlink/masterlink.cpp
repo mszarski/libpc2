@@ -63,6 +63,43 @@ void PC2Beolink::send_shutdown_all() {
 }
 void PC2Beolink::handle_ml_status(MasterlinkTelegram &mlt) {
     BOOST_LOG_TRIVIAL(info) << "Handling status telegram";
+
+    // Handle STATUS_INFO telegram
+    if(mlt.payload_type == mlt.payload_types::status_info) {
+        DecodedTelegram::StatusInfo status_info(mlt);
+        if(status_info.tgram_meaning == DecodedTelegram::StatusInfo::status_info_tgram_meanings::status_update) {
+            BOOST_LOG_TRIVIAL(info) << "STATUS_INFO: Active source is 0x"
+                                    << std::hex << (int)status_info.active_source;
+
+            // Signal interface that status info was received
+            if (this->pc2->status_info_callback) {
+                this->pc2->status_info_callback(status_info.active_source);
+            }
+        }
+    }
+
+    // Handle AUDIO_BUS telegram
+    if(mlt.payload_type == mlt.payload_types::audio_bus) {
+        DecodedTelegram::AudioBus audio_bus(mlt);
+        if(audio_bus.tgram_meaning == DecodedTelegram::AudioBus::audio_bus_tgram_meanings::status_distributing) {
+            BOOST_LOG_TRIVIAL(info) << "AUDIO_BUS: Currently distributing source 0x"
+                                    << std::hex << (int)audio_bus.active_source;
+
+            // Signal interface that audio bus status was received
+            if (this->pc2->audio_bus_callback) {
+                this->pc2->audio_bus_callback(audio_bus.active_source);
+            }
+        } else if(audio_bus.tgram_meaning == DecodedTelegram::AudioBus::audio_bus_tgram_meanings::status_not_distributing) {
+            BOOST_LOG_TRIVIAL(info) << "AUDIO_BUS: Not distributing (no active source)";
+
+            // Signal that no source is active (source = 0)
+            if (this->pc2->audio_bus_callback) {
+                this->pc2->audio_bus_callback(0);
+            }
+        }
+    }
+
+    // Check for pending requests
     for (auto x: this->pending_request_queue) {
         if(is_response_to(mlt, *x->first)) {
             pending_request_queue.remove(x);

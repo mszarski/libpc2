@@ -511,7 +511,7 @@ int main(int argc, char** argv) {
             BOOST_LOG_TRIVIAL(info) << "Starting Spotify source";
 
             // Save the active source and our node address for the track update thread
-            activeSource = source_id;
+            activeSource.store(source_id);
             ourNodeAddress = our_node;
 
             if (pc2 != nullptr) {
@@ -557,7 +557,7 @@ int main(int argc, char** argv) {
         } else {
             // Different source requested - stop our distribution
             BOOST_LOG_TRIVIAL(info) << "Other source requested - stopping distribution";
-            activeSource = 0;  // Clear active source
+            activeSource.store(0);  // Clear active source
             if (pc2 != nullptr) {
                 pc2->mixer->ml_distribute(false);
             }
@@ -600,6 +600,46 @@ int main(int argc, char** argv) {
 
         // Register source request callback
         pc2->source_request_callback = handleSourceRequest;
+
+        // Register STATUS_INFO callback - called when we receive a STATUS_INFO telegram
+        // This tells us which source the audio master has switched to
+        pc2->status_info_callback = [&](uint8_t active_source_id) {
+            BOOST_LOG_TRIVIAL(info) << "STATUS_INFO received: Active source = 0x"
+                                    << std::hex << (int)active_source_id;
+
+            uint8_t our_source = activeSource.load();
+            // If the audio master switched to a different source, stop distributing
+            if (our_source != 0 && active_source_id != our_source) {
+                BOOST_LOG_TRIVIAL(info) << "Audio master switched away from our source (0x"
+                                        << std::hex << (int)our_source
+                                        << ") - stopping Spotify and distribution";
+                activeSource.store(0);
+                pc2->mixer->ml_distribute(false);
+                spotify->pause();
+            }
+        };
+
+        // Register AUDIO_BUS callback - called when we receive an AUDIO_BUS telegram
+        // This tells us which source is currently being distributed on the bus
+        pc2->audio_bus_callback = [&](uint8_t active_source_id) {
+            if (active_source_id == 0) {
+                BOOST_LOG_TRIVIAL(info) << "AUDIO_BUS received: No active distribution";
+            } else {
+                BOOST_LOG_TRIVIAL(info) << "AUDIO_BUS received: Distributing source = 0x"
+                                        << std::hex << (int)active_source_id;
+            }
+
+            uint8_t our_source = activeSource.load();
+            // If someone else is distributing and it's not us, stop our distribution
+            if (our_source != 0 && active_source_id != 0 && active_source_id != our_source) {
+                BOOST_LOG_TRIVIAL(info) << "Another device is distributing (0x"
+                                        << std::hex << (int)active_source_id
+                                        << ") - stopping Spotify and our distribution";
+                activeSource.store(0);
+                pc2->mixer->ml_distribute(false);
+                spotify->pause();
+            }
+        };
 
         // Open the PC2 device
         if (!pc2->open()) {

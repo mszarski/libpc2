@@ -154,7 +154,14 @@ namespace DecodedTelegram {
 
     class StatusInfo: public DecodedTelegram {
         public:
-            StatusInfo(MasterlinkTelegram & tgram): DecodedTelegram{tgram} { }
+            enum status_info_tgram_meanings {
+                unknown,
+                status_update,  // STATUS telegram with source information
+            } status_info_tgram_meanings;
+            enum status_info_tgram_meanings tgram_meaning;
+            uint8_t active_source;  // The currently active source
+
+            StatusInfo(MasterlinkTelegram & tgram);
             StatusInfo(uint8_t source_id); //generates boilerplate reply telegram for a source
             std::ostream& debug_repr(std::ostream& outputStream);
     };
@@ -188,6 +195,7 @@ namespace DecodedTelegram {
                 status_distributing,
             } audio_bus_tgram_meanings;
             enum audio_bus_tgram_meanings tgram_meaning;
+            uint8_t active_source;  // The currently playing source (valid when status_distributing)
 
             AudioBus(MasterlinkTelegram & tgram);
             AudioBus();

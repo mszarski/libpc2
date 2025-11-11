@@ -51,6 +51,20 @@ namespace DecodedTelegram {
         this->payload = { 0x02, source_id, 0x00, 0x02, 0x01, 0x00, 0x00, track_number };
     }
 
+    StatusInfo::StatusInfo(MasterlinkTelegram & tgram): DecodedTelegram{tgram} {
+        this->payload_type = MasterlinkTelegram::payload_types::status_info;
+        this->tgram_meaning = unknown;
+        this->active_source = 0;
+
+        // Decode STATUS_INFO telegram
+        if(this->telegram_type == telegram_types::status) {
+            if(this->payload.size() >= 1) {
+                this->tgram_meaning = status_update;
+                this->active_source = this->payload[0];  // First byte is the active source
+            }
+        }
+    }
+
     StatusInfo::StatusInfo(uint8_t source_id) {
         this->telegram_type = telegram_types::status;
         this->dest_node = 0x83;
@@ -92,6 +106,8 @@ namespace DecodedTelegram {
     AudioBus::AudioBus(MasterlinkTelegram & tgram): DecodedTelegram{tgram} {
         this->payload_type = MasterlinkTelegram::payload_types::audio_bus;
         this->tgram_meaning = unknown;
+        this->active_source = 0;
+
         if(this->telegram_type == telegram_types::request) {
             if(!this->payload.size() && (this->payload_version == 1)) {
                 this->tgram_meaning = request_status;
@@ -99,6 +115,10 @@ namespace DecodedTelegram {
         } else if (this->telegram_type == telegram_types::status) {
             if(this->payload_version == 6) {
                 this->tgram_meaning = status_distributing;
+                // Extract the active source from payload byte 3
+                if(this->payload.size() >= 4) {
+                    this->active_source = this->payload[3];
+                }
             } else if(!this->payload.size() && (this->payload_version == 4)) {
                 this->tgram_meaning = status_not_distributing;
             }
@@ -121,6 +141,8 @@ namespace DecodedTelegram {
                 return new AudioBus(tgram);
             case MasterlinkTelegram::payload_types::goto_source:
                 return new GotoSource(tgram);
+            case MasterlinkTelegram::payload_types::status_info:
+                return new StatusInfo(tgram);
             case MasterlinkTelegram::payload_types::master_present:
                 return new MasterPresent(tgram);
             default:
