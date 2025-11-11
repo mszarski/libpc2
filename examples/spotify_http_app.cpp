@@ -751,7 +751,6 @@ int main(int argc, char** argv) {
 
     // Cleanup
     if (pc2 != nullptr) {
-        pc2->beolink->send_shutdown_all();
         delete pc2;
     }
     curl_global_cleanup();

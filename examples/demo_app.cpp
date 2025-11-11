@@ -179,13 +179,6 @@ int main(int argc, char** argv) {
 
     BOOST_LOG_TRIVIAL(info) << "Event loop exited. Shutting down...";
 
-    // Cleanup - send shutdown to all devices
-    if (testMode) {
-        BOOST_LOG_TRIVIAL(info) << "[TEST] Would send shutdown to all devices";
-    } else {
-        pc2.beolink->send_shutdown_all();
-    }
-
     BOOST_LOG_TRIVIAL(info) << "Demo application terminated.";
 
     return 0;
