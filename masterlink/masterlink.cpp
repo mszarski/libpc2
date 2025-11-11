@@ -44,7 +44,9 @@ void PC2Beolink::handle_ml_command(MasterlinkTelegram &mlt) {
             // Signal interface that a Beo4 key was pressed
             // Use the same keystroke_callback as local Beo4 keys
             if (this->pc2->keystroke_callback) {
+                BOOST_LOG_TRIVIAL(debug) << "Calling keystroke_callback with keycode 0x" << std::hex << (int)beo4_key.keycode;
                 this->pc2->keystroke_callback((Beo4::keycode)beo4_key.keycode);
+                BOOST_LOG_TRIVIAL(debug) << "keystroke_callback returned";
             } else {
                 BOOST_LOG_TRIVIAL(debug) << "Beo4 key 0x" << std::hex << (int)beo4_key.keycode
                                          << " received via Masterlink, but no callback registered";

@@ -80,6 +80,22 @@ int main(int argc, char** argv) {
                 BOOST_LOG_TRIVIAL(info) << "Volume down pressed!";
                 break;
 
+            case Beo4::keycode::arrow_up:
+                BOOST_LOG_TRIVIAL(info) << "Arrow up pressed!";
+                break;
+
+            case Beo4::keycode::arrow_down:
+                BOOST_LOG_TRIVIAL(info) << "Arrow down pressed!";
+                break;
+
+            case Beo4::keycode::arrow_left:
+                BOOST_LOG_TRIVIAL(info) << "Arrow left pressed!";
+                break;
+
+            case Beo4::keycode::arrow_right:
+                BOOST_LOG_TRIVIAL(info) << "Arrow right pressed!";
+                break;
+
             default:
                 BOOST_LOG_TRIVIAL(debug) << "Unhandled keycode: 0x" << std::hex << (int)keycode;
                 break;

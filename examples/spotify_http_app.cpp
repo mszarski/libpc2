@@ -587,6 +587,16 @@ int main(int argc, char** argv) {
                     spotify->previous();
                     break;
 
+                case Beo4::keycode::arrow_up:
+                    BOOST_LOG_TRIVIAL(info) << "Arrow up pressed";
+                    // Could add volume control here if Spotify API supports it
+                    break;
+
+                case Beo4::keycode::arrow_down:
+                    BOOST_LOG_TRIVIAL(info) << "Arrow down pressed";
+                    // Could add volume control here if Spotify API supports it
+                    break;
+
                 default:
                     BOOST_LOG_TRIVIAL(debug) << "Unhandled keycode: 0x" << std::hex << (int)keycode;
                     break;
