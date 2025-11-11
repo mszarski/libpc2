@@ -1,4 +1,5 @@
 #include "pc2/mailbox.hpp"
+#include <chrono>
 
 int PC2Mailbox::count() {
     return queue.size();
@@ -36,4 +37,37 @@ PC2Message PC2Mailbox::pop_sync() {
     auto msg = queue.front();
     queue.pop();
     return msg;
+}
+
+bool PC2Mailbox::pop_with_timeout(PC2Message& msg, int timeout_ms) {
+    // If a message is waiting to be read, return it immediately
+    {
+        std::scoped_lock<std::mutex> lk(queue_mutex);
+        if(queue.size()) {
+            msg = queue.front();
+            queue.pop();
+            return true;
+        }
+    }
+
+    // Wait with timeout for a message
+    std::unique_lock<std::mutex> cv_lk(msg_available_mutex);
+    bool has_message = msg_available.wait_for(cv_lk,
+                                               std::chrono::milliseconds(timeout_ms),
+                                               [this] {return queue.size() > 0;});
+    cv_lk.unlock();
+
+    if (!has_message) {
+        return false;  // Timeout occurred
+    }
+
+    // Got a message, retrieve it
+    std::scoped_lock<std::mutex> lk(queue_mutex);
+    if (queue.size()) {
+        msg = queue.front();
+        queue.pop();
+        return true;
+    }
+
+    return false;  // Shouldn't happen, but handle it
 }

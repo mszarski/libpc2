@@ -41,12 +41,15 @@ void PC2MessageFragmentAssembler::operator<< (const PC2Message &fragment) {
     } else {
         // The minimum valid message is 3 bytes; anything less is a problem
         if(fragment.size() < 3) {
+            BOOST_LOG_TRIVIAL(warning) << "Received message too short to be valid (" << fragment.size() << " bytes), discarding";
             assembled_message.clear();
-            throw PC2InvalidMessage("Received message too short to be valid!");
+            return;
         };
         if(fragment[0] != 0x60) {
+            BOOST_LOG_TRIVIAL(warning) << "Message fragment does not start with 0x60 (starts with 0x"
+                                       << std::hex << (int)fragment[0] << "), discarding invalid data";
             assembled_message.clear();
-            throw PC2InvalidMessage("Message fragment does not start with 0x60!");
+            return;
         };
 
         // is singleton message continued?

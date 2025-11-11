@@ -86,7 +86,11 @@ void PC2Device::process_message(const PC2Message & tgram) {
 
 void PC2::event_loop(volatile bool & keepRunning) {
     while(keepRunning) {
-        this->device->process_message(this->device->inbox.pop_sync());
+        PC2Message msg;
+        // Use 100ms timeout to allow checking keepRunning flag
+        if (this->device->inbox.pop_with_timeout(msg, 100)) {
+            this->device->process_message(msg);
+        }
     }
 }
 

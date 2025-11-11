@@ -15,5 +15,6 @@ class PC2Mailbox {
     public:
         int count();
         PC2Message pop_sync();
+        bool pop_with_timeout(PC2Message& msg, int timeout_ms);
         void push(PC2Message msg);
 };
