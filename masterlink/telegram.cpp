@@ -101,10 +101,11 @@ namespace DecodedTelegram {
         this->requested_source = 0;
 
         // Decode DISTRIBUTION_REQUEST telegram
-        if(this->telegram_type == telegram_types::status) {
-            if(this->payload.size() >= 1 && this->payload_version == 8) {
+        // It comes as a REQUEST telegram (0x0B) with the source in the dest_src field
+        if(this->telegram_type == telegram_types::request) {
+            if(this->payload.size() >= 1 && this->payload_version == 1) {
                 this->tgram_meaning = request_distribution;
-                this->requested_source = this->src_src;  // Source is in src_src field
+                this->requested_source = this->dest_src;  // Source is in dest_src field (0x7A in your example)
             }
         }
     }
@@ -211,8 +212,8 @@ MasterlinkTelegram::MasterlinkTelegram(const PC2Message & tgram) {
     this->dest_node = this->data[1];
     this->src_node = this->data[2];
     this->telegram_type = (telegram_types)this->data[4];
+    this->dest_src = this->data[5];  // Fixed: was reading data[7], should be data[5]
     this->src_src = this->data[6];
-    this->dest_src = this->data[7];
     this->payload_type = (payload_types)this->data[8];
     this->payload_size = this->data[9];
     this->payload_version = this->data[10];
