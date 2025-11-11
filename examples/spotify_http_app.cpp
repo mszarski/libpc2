@@ -335,11 +335,73 @@ public:
     }
 };
 
+// Keyboard input thread for testing without Beo4 remote
+void keyboardInputThread(std::shared_ptr<SpotifyHTTP> spotify,
+                         std::function<void()> triggerSourceCallback,
+                         volatile bool& running) {
+    std::cout << "\n=== Keyboard Controls ===\n";
+    std::cout << "  p - Play\n";
+    std::cout << "  s - Stop/Pause\n";
+    std::cout << "  n - Next track\n";
+    std::cout << "  b - Previous track (back)\n";
+    std::cout << "  t - Trigger source selection (test Masterlink flow)\n";
+    std::cout << "  q - Quit\n";
+    std::cout << "=========================\n\n";
+
+    while (running) {
+        char input;
+        std::cin >> input;
+
+        switch(input) {
+            case 'p':
+                std::cout << "[TEST] Play command\n";
+                spotify->play();
+                break;
+            case 's':
+                std::cout << "[TEST] Stop/Pause command\n";
+                spotify->pause();
+                break;
+            case 'n':
+                std::cout << "[TEST] Next track\n";
+                spotify->next();
+                break;
+            case 'b':
+                std::cout << "[TEST] Previous track\n";
+                spotify->previous();
+                break;
+            case 't':
+                std::cout << "[TEST] Triggering source selection (A.MEM2 = 0x7A)\n";
+                triggerSourceCallback();
+                break;
+            case 'q':
+                std::cout << "[TEST] Quit requested\n";
+                keepRunning = false;
+                break;
+            default:
+                std::cout << "[TEST] Unknown command: " << input << "\n";
+                break;
+        }
+    }
+}
+
 int main(int argc, char** argv) {
+    // Check for test mode flag
+    bool testMode = false;
+    for (int i = 1; i < argc; i++) {
+        if (std::string(argv[i]) == "--test-mode" || std::string(argv[i]) == "-t") {
+            testMode = true;
+            break;
+        }
+    }
+
     // Set up signal handler for graceful shutdown
     signal(SIGINT, signalHandler);
 
-    BOOST_LOG_TRIVIAL(info) << "PC2 Spotify Application Starting...";
+    if (testMode) {
+        BOOST_LOG_TRIVIAL(info) << "PC2 Spotify Application Starting in TEST MODE (no hardware required)...";
+    } else {
+        BOOST_LOG_TRIVIAL(info) << "PC2 Spotify Application Starting...";
+    }
 
     // Read Spotify tokens and client credentials from JSON files
     std::string homeDir = std::string(getenv("HOME"));
@@ -411,8 +473,11 @@ int main(int argc, char** argv) {
     // Create the custom interface
     SpotifyInterface interface;
 
-    // Create the PC2 instance with the interface
-    PC2 pc2(&interface);
+    // Create the PC2 instance with the interface (only if not in test mode)
+    PC2* pc2 = nullptr;
+    if (!testMode) {
+        pc2 = new PC2(&interface);
+    }
 
     // Track update thread flag and state
     std::atomic<bool> trackUpdateRunning{true};
@@ -420,39 +485,8 @@ int main(int argc, char** argv) {
     std::atomic<uint8_t> activeSource{0};  // Track current active source
     std::atomic<uint8_t> ourNodeAddress{0xC2};  // Track our node address
 
-    // Register keystroke callback for Beo4 remote control
-    pc2.keystroke_callback = [&](Beo4::keycode keycode) {
-        BOOST_LOG_TRIVIAL(info) << "Beo4 key pressed: 0x" << std::hex << (int)keycode;
-
-        switch(keycode) {
-            case Beo4::keycode::play:
-                BOOST_LOG_TRIVIAL(info) << "Play button pressed";
-                spotify->play();
-                break;
-
-            case Beo4::keycode::stop:
-                BOOST_LOG_TRIVIAL(info) << "Stop button pressed";
-                spotify->pause();
-                break;
-
-            case Beo4::keycode::arrow_right:
-                BOOST_LOG_TRIVIAL(info) << "Next track (arrow right)";
-                spotify->next();
-                break;
-
-            case Beo4::keycode::arrow_left:
-                BOOST_LOG_TRIVIAL(info) << "Previous track (arrow left)";
-                spotify->previous();
-                break;
-
-            default:
-                BOOST_LOG_TRIVIAL(debug) << "Unhandled keycode: 0x" << std::hex << (int)keycode;
-                break;
-        }
-    };
-
-    // Register source request callback
-    pc2.source_request_callback = [&](uint8_t source_id, uint8_t our_node, uint8_t from_node) {
+    // Lambda function to handle source selection (used by both PC2 callback and test mode)
+    auto handleSourceRequest = [&](uint8_t source_id, uint8_t our_node, uint8_t from_node) {
         BOOST_LOG_TRIVIAL(info) << "Source 0x" << std::hex << (int)source_id
                                 << " requested via Masterlink"
                                 << " (to node 0x" << (int)our_node
@@ -466,36 +500,40 @@ int main(int argc, char** argv) {
             activeSource = source_id;
             ourNodeAddress = our_node;
 
-            // 1. Send distribution request
-            DecodedTelegram::DistributionRequest dist_req(source_id);
-            dist_req.src_node = our_node;
-            dist_req.dest_node = from_node;
-            pc2.beolink->send_telegram(dist_req);
+            if (pc2 != nullptr) {
+                // 1. Send distribution request
+                DecodedTelegram::DistributionRequest dist_req(source_id);
+                dist_req.src_node = our_node;
+                dist_req.dest_node = from_node;
+                pc2->beolink->send_telegram(dist_req);
 
-            // 2. Send initial track text
-            DecodedTelegram::TrackText8 text_msg1(source_id, "SPOTIFY");
-            text_msg1.src_node = our_node;
-            pc2.beolink->send_telegram(text_msg1);
+                // 2. Send initial track text
+                DecodedTelegram::TrackText8 text_msg1(source_id, "SPOTIFY");
+                text_msg1.src_node = our_node;
+                pc2->beolink->send_telegram(text_msg1);
 
-            // 3. Send status info
-            DecodedTelegram::StatusInfo status(source_id);
-            status.src_node = our_node;
-            pc2.beolink->send_telegram(status);
+                // 3. Send status info
+                DecodedTelegram::StatusInfo status(source_id);
+                status.src_node = our_node;
+                pc2->beolink->send_telegram(status);
 
-            // 4. Send track info
-            DecodedTelegram::TrackInfo track_info(source_id, 1);
-            track_info.src_node = our_node;
-            track_info.dest_node = 0x83;
-            pc2.beolink->send_telegram(track_info);
+                // 4. Send track info
+                DecodedTelegram::TrackInfo track_info(source_id, 1);
+                track_info.src_node = our_node;
+                track_info.dest_node = 0x83;
+                pc2->beolink->send_telegram(track_info);
 
-            // 5. Send track text again for reliability
-            DecodedTelegram::TrackText8 text_msg2(source_id, "SPOTIFY");
-            text_msg2.src_node = our_node;
-            pc2.beolink->send_telegram(text_msg2);
+                // 5. Send track text again for reliability
+                DecodedTelegram::TrackText8 text_msg2(source_id, "SPOTIFY");
+                text_msg2.src_node = our_node;
+                pc2->beolink->send_telegram(text_msg2);
 
-            // 6. Enable audio distribution to Masterlink
-            BOOST_LOG_TRIVIAL(info) << "Enabling audio distribution";
-            pc2.mixer->ml_distribute(true);
+                // 6. Enable audio distribution to Masterlink
+                BOOST_LOG_TRIVIAL(info) << "Enabling audio distribution";
+                pc2->mixer->ml_distribute(true);
+            } else {
+                BOOST_LOG_TRIVIAL(info) << "[TEST MODE] Skipping Masterlink telegrams (no hardware)";
+            }
 
             // 7. Start playing liked songs collection
             BOOST_LOG_TRIVIAL(info) << "Starting liked songs collection";
@@ -504,22 +542,65 @@ int main(int argc, char** argv) {
             // Different source requested - stop our distribution
             BOOST_LOG_TRIVIAL(info) << "Other source requested - stopping distribution";
             activeSource = 0;  // Clear active source
-            pc2.mixer->ml_distribute(false);
+            if (pc2 != nullptr) {
+                pc2->mixer->ml_distribute(false);
+            }
             spotify->pause();
         }
     };
 
-    // Open the PC2 device
-    if (!pc2.open()) {
-        BOOST_LOG_TRIVIAL(error) << "Failed to open PC2 device!";
-        curl_global_cleanup();
-        return 1;
+    // Register callbacks if in normal mode (with PC2 hardware)
+    if (pc2 != nullptr) {
+        // Register keystroke callback for Beo4 remote control
+        pc2->keystroke_callback = [&](Beo4::keycode keycode) {
+            BOOST_LOG_TRIVIAL(info) << "Beo4 key pressed: 0x" << std::hex << (int)keycode;
+
+            switch(keycode) {
+                case Beo4::keycode::play:
+                    BOOST_LOG_TRIVIAL(info) << "Play button pressed";
+                    spotify->play();
+                    break;
+
+                case Beo4::keycode::stop:
+                    BOOST_LOG_TRIVIAL(info) << "Stop button pressed";
+                    spotify->pause();
+                    break;
+
+                case Beo4::keycode::arrow_right:
+                    BOOST_LOG_TRIVIAL(info) << "Next track (arrow right)";
+                    spotify->next();
+                    break;
+
+                case Beo4::keycode::arrow_left:
+                    BOOST_LOG_TRIVIAL(info) << "Previous track (arrow left)";
+                    spotify->previous();
+                    break;
+
+                default:
+                    BOOST_LOG_TRIVIAL(debug) << "Unhandled keycode: 0x" << std::hex << (int)keycode;
+                    break;
+            }
+        };
+
+        // Register source request callback
+        pc2->source_request_callback = handleSourceRequest;
+
+        // Open the PC2 device
+        if (!pc2->open()) {
+            BOOST_LOG_TRIVIAL(error) << "Failed to open PC2 device!";
+            curl_global_cleanup();
+            delete pc2;
+            return 1;
+        }
+
+        BOOST_LOG_TRIVIAL(info) << "PC2 device opened successfully";
+
+        // Broadcast timestamp
+        pc2->beolink->broadcast_timestamp();
+    } else {
+        BOOST_LOG_TRIVIAL(info) << "Test mode enabled - PC2 hardware not initialized";
+        BOOST_LOG_TRIVIAL(info) << "Use keyboard commands to control playback";
     }
-
-    BOOST_LOG_TRIVIAL(info) << "PC2 device opened successfully";
-
-    // Broadcast timestamp
-    pc2.beolink->broadcast_timestamp();
 
     // Start track metadata update thread with scrolling text
     std::thread trackUpdateThread([&]() {
@@ -586,10 +667,15 @@ int main(int argc, char** argv) {
                             scrollPosition = (scrollPosition + 1) % fullText.length();
                         }
 
-                        // Send updated track text to Masterlink using saved source
-                        DecodedTelegram::TrackText8 text_msg(activeSource, displayText);
-                        text_msg.src_node = ourNodeAddress;
-                        pc2.beolink->send_telegram(text_msg);
+                        // Send updated track text to Masterlink using saved source (if hardware available)
+                        if (pc2 != nullptr) {
+                            DecodedTelegram::TrackText8 text_msg(activeSource, displayText);
+                            text_msg.src_node = ourNodeAddress;
+                            pc2->beolink->send_telegram(text_msg);
+                        } else {
+                            // In test mode, just log the scrolling text
+                            BOOST_LOG_TRIVIAL(debug) << "[TEST] Display: " << displayText;
+                        }
                     }
                 }
             }
@@ -599,11 +685,30 @@ int main(int argc, char** argv) {
         }
     });
 
-    BOOST_LOG_TRIVIAL(info) << "Entering event loop. Press Ctrl+C to exit.";
     BOOST_LOG_TRIVIAL(info) << "Spotify Web API ready with automatic token refresh";
 
-    // Run the event loop
-    pc2.event_loop(keepRunning);
+    // Start keyboard input thread in test mode
+    std::thread* keyboardThread = nullptr;
+    if (testMode) {
+        // Create a lambda that calls handleSourceRequest with test parameters
+        auto triggerSource = [&]() {
+            handleSourceRequest(Masterlink::source::a_mem2, 0xC2, 0xC1);
+        };
+
+        keyboardThread = new std::thread(keyboardInputThread, spotify, triggerSource, std::ref(keepRunning));
+    }
+
+    if (pc2 != nullptr) {
+        BOOST_LOG_TRIVIAL(info) << "Entering event loop. Press Ctrl+C to exit.";
+        // Run the event loop
+        pc2->event_loop(keepRunning);
+    } else {
+        BOOST_LOG_TRIVIAL(info) << "Test mode: Use keyboard commands. Press 'q' to quit.";
+        // In test mode, just wait for keepRunning to become false
+        while (keepRunning) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+    }
 
     BOOST_LOG_TRIVIAL(info) << "Event loop exited. Shutting down...";
 
@@ -611,8 +716,17 @@ int main(int argc, char** argv) {
     trackUpdateRunning = false;
     trackUpdateThread.join();
 
+    // Stop keyboard thread if running
+    if (keyboardThread != nullptr) {
+        keyboardThread->join();
+        delete keyboardThread;
+    }
+
     // Cleanup
-    pc2.beolink->send_shutdown_all();
+    if (pc2 != nullptr) {
+        pc2->beolink->send_shutdown_all();
+        delete pc2;
+    }
     curl_global_cleanup();
 
     BOOST_LOG_TRIVIAL(info) << "Spotify HTTP application terminated.";

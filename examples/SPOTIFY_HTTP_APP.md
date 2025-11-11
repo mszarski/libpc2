@@ -111,9 +111,28 @@ The Web API controls existing Spotify playback. Make sure Spotify is playing on 
 
 ### 3. Run spotify_http_app
 
+#### Normal Mode (with PC2 hardware)
+
 ```bash
 ./spotify_http_app
 ```
+
+#### Test Mode (without PC2 hardware)
+
+For development without PC2 hardware, use test mode:
+
+```bash
+./spotify_http_app --test-mode
+# or
+./spotify_http_app -t
+```
+
+**Test mode features:**
+- No PC2 device required
+- Keyboard controls for testing playback
+- Simulated source selection to test the Masterlink flow
+- All Spotify API features work normally
+- Scrolling display text shown in logs
 
 ### 4. Select Source on Masterlink
 
@@ -132,6 +151,19 @@ Use your Beo4 remote to:
 | Stop/Pause | Pause playback |
 | Step Up / Wind | Next track |
 | Step Down / Rewind | Previous track |
+
+### Keyboard Control (Test Mode Only)
+
+When running with `--test-mode`, use these keyboard commands:
+
+| Key | Action |
+|-----|--------|
+| p | Play |
+| s | Stop/Pause |
+| n | Next track |
+| b | Previous track (back) |
+| t | Trigger source selection (simulates Masterlink A.MEM2 request) |
+| q | Quit application |
 
 ### Track Display
 
@@ -212,6 +244,36 @@ sudo apt install nlohmann-json3-dev
 # Arch Linux
 sudo pacman -S nlohmann-json
 ```
+
+### Testing without PC2 hardware
+
+**Problem**: Want to develop/test Spotify integration without PC2 device
+
+**Solution**: Use test mode!
+
+```bash
+./spotify_http_app --test-mode
+```
+
+**What works in test mode:**
+- ✅ All Spotify API calls (play, pause, next, previous)
+- ✅ Token refresh
+- ✅ Track metadata fetching
+- ✅ Scrolling text display (shown in logs)
+- ✅ Keyboard controls (p/s/n/b/t/q)
+- ✅ Simulated source selection (press 't')
+
+**What's skipped:**
+- ❌ PC2 USB device initialization
+- ❌ Masterlink telegram transmission (logged but not sent)
+- ❌ Beo4 remote control input
+- ❌ Audio distribution to Masterlink
+
+**Use cases:**
+1. **API Development**: Test Spotify integration without hardware
+2. **OAuth Testing**: Verify token refresh works correctly
+3. **UI Testing**: Check scrolling display logic
+4. **Debugging**: Isolate API issues from hardware issues
 
 ## Differences from D-Bus Version
 
