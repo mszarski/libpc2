@@ -515,34 +515,29 @@ int main(int argc, char** argv) {
             ourNodeAddress = our_node;
 
             if (pc2 != nullptr) {
-                // 1. Send distribution request
-                DecodedTelegram::DistributionRequest dist_req(source_id);
-                dist_req.src_node = our_node;
-                dist_req.dest_node = from_node;
-                pc2->beolink->send_telegram(dist_req);
 
-                // 2. Send initial track text
+                // 1. Send initial track text
                 DecodedTelegram::TrackText8 text_msg1(source_id, "SPOTIFY");
                 text_msg1.src_node = our_node;
                 pc2->beolink->send_telegram(text_msg1);
 
-                // 3. Send status info
+                // 2. Send status info
                 DecodedTelegram::StatusInfo status(source_id);
                 status.src_node = our_node;
                 pc2->beolink->send_telegram(status);
 
-                // 4. Send track info
+                // 3. Send track info
                 DecodedTelegram::TrackInfo track_info(source_id, 1);
                 track_info.src_node = our_node;
                 track_info.dest_node = 0x83;
                 pc2->beolink->send_telegram(track_info);
 
-                // 5. Send track text again for reliability
+                // 4. Send track text again for reliability
                 DecodedTelegram::TrackText8 text_msg2(source_id, "SPOTIFY");
                 text_msg2.src_node = our_node;
                 pc2->beolink->send_telegram(text_msg2);
 
-                // 6. Enable audio distribution to Masterlink
+                // 5. Enable audio distribution to Masterlink
                 BOOST_LOG_TRIVIAL(info) << "Enabling audio distribution";
                 pc2->mixer->ml_distribute(true);
             } else {
