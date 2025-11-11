@@ -110,6 +110,23 @@ namespace DecodedTelegram {
         }
     }
 
+    Beo4Key::Beo4Key(MasterlinkTelegram & tgram): DecodedTelegram{tgram} {
+        this->payload_type = MasterlinkTelegram::payload_types::beo4_key;
+        this->tgram_meaning = unknown;
+        this->source = 0;
+        this->keycode = 0;
+
+        // Decode BEO4_KEY telegram
+        // It comes as a COMMAND telegram (0x0A) with payload containing source and keycode
+        if(this->telegram_type == telegram_types::command) {
+            if(this->payload.size() >= 2 && this->payload_version == 1) {
+                this->tgram_meaning = key_press;
+                this->source = this->payload[0];   // Source (0x7A in your examples)
+                this->keycode = this->payload[1];  // Keycode (0x1E for UP, 0x1F for DOWN, etc.)
+            }
+        }
+    }
+
     DistributionRequest::DistributionRequest(uint8_t source_id) {
         this->telegram_type = telegram_types::status;
         this->payload_type = MasterlinkTelegram::payload_types::distribution_request;
@@ -154,6 +171,8 @@ namespace DecodedTelegram {
                 return new DisplayData(tgram);
             case MasterlinkTelegram::payload_types::audio_bus:
                 return new AudioBus(tgram);
+            case MasterlinkTelegram::payload_types::beo4_key:
+                return new Beo4Key(tgram);
             case MasterlinkTelegram::payload_types::goto_source:
                 return new GotoSource(tgram);
             case MasterlinkTelegram::payload_types::status_info:

@@ -130,6 +130,28 @@ std::ostream& DecodedTelegram::DistributionRequest::debug_repr(std::ostream& out
     return generic_debug_repr(outputStream, this);
 }
 
+std::ostream& DecodedTelegram::Beo4Key::debug_repr(std::ostream& outputStream) {
+    std::string analysis;
+    debug_field_list fields;
+
+    if(this->tgram_meaning == key_press) {
+        analysis += payload_header("Beo4 Key Press");
+        fields = {
+            {0, 1, ml_source, "Source"},
+            {1, 1, hexbyte, "Keycode"}
+        };
+    } else {
+        analysis += payload_header("Unknown Beo4 Key telegram");
+    }
+
+    for(auto x: fields) {
+        analysis += format_field(*this, x);
+    }
+
+    outputStream << analysis;
+    return outputStream;
+}
+
 std::ostream& DecodedTelegram::AudioBus::debug_repr(std::ostream& outputStream) {
     std::string analysis;
     debug_field_list fields;

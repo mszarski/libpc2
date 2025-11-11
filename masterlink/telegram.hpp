@@ -51,6 +51,7 @@ class MasterlinkTelegram {
             master_present = 0x04,
             display_data = 0x06,
             metadata = 0x0b,
+            beo4_key = 0x0d,
             goto_source = 0x45,
             audio_bus = 0x08,
             status_info = 0x87,
@@ -185,6 +186,20 @@ namespace DecodedTelegram {
 
             DistributionRequest(MasterlinkTelegram & tgram);
             DistributionRequest(uint8_t source_id); //generates distribution request telegram
+            std::ostream& debug_repr(std::ostream& outputStream);
+    };
+
+    class Beo4Key: public DecodedTelegram {
+        public:
+            enum beo4_key_tgram_meanings {
+                unknown,
+                key_press,  // COMMAND telegram with Beo4 keycode
+            } beo4_key_tgram_meanings;
+            enum beo4_key_tgram_meanings tgram_meaning;
+            uint8_t source;   // The source the key is for (payload byte 0)
+            uint8_t keycode;  // The Beo4 keycode (payload byte 1)
+
+            Beo4Key(MasterlinkTelegram & tgram);
             std::ostream& debug_repr(std::ostream& outputStream);
     };
 

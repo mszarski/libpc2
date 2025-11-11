@@ -33,7 +33,24 @@ static bool is_response_to(MasterlinkTelegram &incoming_tgram, MasterlinkTelegra
 
 void PC2Beolink::handle_ml_command(MasterlinkTelegram &mlt) {
     BOOST_LOG_TRIVIAL(info) << "Handling command telegram";
-    if(mlt.payload_type == mlt.payload_types::release) {
+
+    if(mlt.payload_type == mlt.payload_types::beo4_key) {
+        DecodedTelegram::Beo4Key beo4_key(mlt);
+        if(beo4_key.tgram_meaning == DecodedTelegram::Beo4Key::beo4_key_tgram_meanings::key_press) {
+            BOOST_LOG_TRIVIAL(info) << "BEO4_KEY: Keycode 0x"
+                                    << std::hex << (int)beo4_key.keycode
+                                    << " for source 0x" << (int)beo4_key.source;
+
+            // Signal interface that a Beo4 key was pressed
+            // Use the same keystroke_callback as local Beo4 keys
+            if (this->pc2->keystroke_callback) {
+                this->pc2->keystroke_callback((Beo4::keycode)beo4_key.keycode);
+            } else {
+                BOOST_LOG_TRIVIAL(debug) << "Beo4 key 0x" << std::hex << (int)beo4_key.keycode
+                                         << " received via Masterlink, but no callback registered";
+            }
+        }
+    } else if(mlt.payload_type == mlt.payload_types::release) {
         // FIXME: Uses hard coded nonsense from keystroke handler code
         this->pc2->device->send_message({0xe0, 0xc0, 0xc1, 0x01, 0x0b, 0x00, 0x00, 0x00, 0x04, 0x03, 0x04, 0x01, 0x01, 0x00, 0x9a, 0x00});
         this->pc2->device->send_message({0xe0, 0xc0, 0xc1, 0x01, 0x0a, 0x00, 0x00, 0x00, 0x11, 0x02, 0x02, 0x01, 0x00, 0xa2, 0x00});
