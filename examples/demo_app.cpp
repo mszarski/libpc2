@@ -188,6 +188,17 @@ int main(int argc, char** argv) {
         }
     };
 
+    // Register RELEASE callback - called when standby/power button is pressed
+    pc2.release_callback = [&pc2, testMode, &our_active_source]() {
+        BOOST_LOG_TRIVIAL(info) << "RELEASE/Standby received - stopping distribution";
+        our_active_source = 0;
+        if (testMode) {
+            BOOST_LOG_TRIVIAL(info) << "[TEST] Would disable audio distribution";
+        } else {
+            pc2.mixer->ml_distribute(false);
+        }
+    };
+
     // Open the PC2 device
     if (!pc2.open()) {
         BOOST_LOG_TRIVIAL(error) << "Failed to open PC2 device!";

@@ -624,6 +624,14 @@ int main(int argc, char** argv) {
             }
         };
 
+        // Register RELEASE callback - called when standby/power button is pressed
+        pc2->release_callback = [&]() {
+            BOOST_LOG_TRIVIAL(info) << "RELEASE/Standby received - stopping Spotify and distribution";
+            activeSource.store(0);
+            pc2->mixer->ml_distribute(false);
+            spotify->pause();
+        };
+
         // Open the PC2 device
         if (!pc2->open()) {
             BOOST_LOG_TRIVIAL(error) << "Failed to open PC2 device!";

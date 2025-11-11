@@ -53,6 +53,14 @@ void PC2Beolink::handle_ml_command(MasterlinkTelegram &mlt) {
             }
         }
     } else if(mlt.payload_type == mlt.payload_types::release) {
+        BOOST_LOG_TRIVIAL(info) << "RELEASE/Standby telegram received";
+
+        // Notify the application via callback
+        if (this->pc2->release_callback) {
+            this->pc2->release_callback();
+        }
+
+        // Handle hardware shutdown
         // FIXME: Uses hard coded nonsense from keystroke handler code
         this->pc2->device->send_message({0xe0, 0xc0, 0xc1, 0x01, 0x0b, 0x00, 0x00, 0x00, 0x04, 0x03, 0x04, 0x01, 0x01, 0x00, 0x9a, 0x00});
         this->pc2->device->send_message({0xe0, 0xc0, 0xc1, 0x01, 0x0a, 0x00, 0x00, 0x00, 0x11, 0x02, 0x02, 0x01, 0x00, 0xa2, 0x00});
