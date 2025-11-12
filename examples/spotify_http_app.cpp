@@ -516,24 +516,25 @@ int main(int argc, char** argv) {
 
             if (pc2 != nullptr) {
 
-                // 1. Send initial track text
-                DecodedTelegram::TrackText8 text_msg1(source_id, "SPOTIFY");
+                // 1. Send initial track text (12 chars for network sources)
+                DecodedTelegram::TrackText12 text_msg1(source_id, "SPOTIFY");
                 text_msg1.src_node = our_node;
                 pc2->beolink->send_telegram(text_msg1);
 
-                // 2. Send status info
+                // 2. Send STATUS_INFO (broadcast to all devices)
                 DecodedTelegram::StatusInfo status(source_id);
                 status.src_node = our_node;
+                status.dest_node = 0x83;
                 pc2->beolink->send_telegram(status);
 
-                // 3. Send track info
-                DecodedTelegram::TrackInfo track_info(source_id, 1);
-                track_info.src_node = our_node;
-                track_info.dest_node = 0x83;
-                pc2->beolink->send_telegram(track_info);
+                // 3. Send TRACK_INFO_LONG (to audio master)
+                DecodedTelegram::TrackInfoLong track_info_long(source_id, 1);
+                track_info_long.src_node = our_node;
+                track_info_long.dest_node = 0xc1;  // Audio master
+                pc2->beolink->send_telegram(track_info_long);
 
                 // 4. Send track text again for reliability
-                DecodedTelegram::TrackText8 text_msg2(source_id, "SPOTIFY");
+                DecodedTelegram::TrackText12 text_msg2(source_id, "SPOTIFY");
                 text_msg2.src_node = our_node;
                 pc2->beolink->send_telegram(text_msg2);
 

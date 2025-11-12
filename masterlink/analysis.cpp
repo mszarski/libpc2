@@ -93,6 +93,10 @@ std::ostream& DecodedTelegram::TrackInfo::debug_repr(std::ostream& outputStream)
     return generic_debug_repr(outputStream, this);
 }
 
+std::ostream& DecodedTelegram::TrackInfoLong::debug_repr(std::ostream& outputStream) {
+    return generic_debug_repr(outputStream, this);
+}
+
 std::ostream& DecodedTelegram::StatusInfo::debug_repr(std::ostream& outputStream) {
     return generic_debug_repr(outputStream, this);
 }
@@ -117,6 +121,35 @@ std::ostream& DecodedTelegram::TrackText8::debug_repr(std::ostream& outputStream
         {3, 1, hexbyte, "Unknown (Always 0x00)"},
         {4, 1, hexbyte, "Unknown (Always 0x00)"},
         {5, 8, fixed_width_ascii, "Text data (8 chars)"},
+    };
+
+    for(auto x: fields) {
+        analysis += format_field(*this, x);
+    }
+
+    return outputStream << analysis;
+}
+
+std::ostream& DecodedTelegram::TrackText12::debug_repr(std::ostream& outputStream) {
+    std::string analysis;
+    debug_field_list fields;
+
+    if(this->payload.size() != 17) {
+        analysis += payload_header("Track Text 12 telegram");
+        analysis += payload_warning("Unexpected payload length!");
+        return outputStream << analysis;
+    }
+
+    std::string text = std::string(this->payload.begin() + 5, this->payload.end());
+    analysis += payload_header("Track Text 12: [" + text + "]");
+
+    fields = {
+        {0, 1, hexbyte, "Unknown (Always 0x03)"},
+        {1, 1, hexbyte, "Unknown (Always 0x01)"},
+        {2, 1, hexbyte, "Unknown (Always 0x01)"},
+        {3, 1, hexbyte, "Unknown (Always 0x00)"},
+        {4, 1, hexbyte, "Unknown (Always 0x00)"},
+        {5, 12, fixed_width_ascii, "Text data (12 chars)"},
     };
 
     for(auto x: fields) {

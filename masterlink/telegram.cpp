@@ -51,6 +51,13 @@ namespace DecodedTelegram {
         this->payload = { 0x02, source_id, 0x00, 0x02, 0x01, 0x00, 0x00, track_number };
     }
 
+    TrackInfoLong::TrackInfoLong(uint8_t source_id, uint8_t track_number) {
+        this->telegram_type = telegram_types::status;
+        this->payload_type = MasterlinkTelegram::payload_types::track_info_long;
+        this->payload_version = 6;
+        this->payload = { 0x06, source_id, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, track_number };
+    }
+
     StatusInfo::StatusInfo(MasterlinkTelegram & tgram): DecodedTelegram{tgram} {
         this->payload_type = MasterlinkTelegram::payload_types::status_info;
         this->tgram_meaning = unknown;
@@ -87,6 +94,24 @@ namespace DecodedTelegram {
 
         // Append 8 bytes of text (pad with spaces if shorter, truncate if longer)
         for(int i = 0; i < 8; i++) {
+            if(i < text.length()) {
+                this->payload.push_back(text[i]);
+            } else {
+                this->payload.push_back(' ');
+            }
+        }
+    }
+
+    TrackText12::TrackText12(uint8_t source_id, std::string text) {
+        this->telegram_type = telegram_types::info;
+        this->dest_node = 0x83;
+        this->src_src = source_id;
+        this->payload_type = MasterlinkTelegram::payload_types::display_data;
+        this->payload_version = 0;
+        this->payload = { 0x03, 0x01, 0x01, 0x00, 0x00 };
+
+        // Append 12 bytes of text (pad with spaces if shorter, truncate if longer)
+        for(int i = 0; i < 12; i++) {
             if(i < text.length()) {
                 this->payload.push_back(text[i]);
             } else {
@@ -177,6 +202,8 @@ namespace DecodedTelegram {
                 return new GotoSource(tgram);
             case MasterlinkTelegram::payload_types::status_info:
                 return new StatusInfo(tgram);
+            case MasterlinkTelegram::payload_types::track_info_long:
+                return new TrackInfoLong(tgram);
             case MasterlinkTelegram::payload_types::distribution_request:
                 return new DistributionRequest(tgram);
             case MasterlinkTelegram::payload_types::master_present:

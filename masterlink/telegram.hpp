@@ -56,6 +56,7 @@ class MasterlinkTelegram {
             audio_bus = 0x08,
             status_info = 0x87,
             track_info = 0x44,
+            track_info_long = 0x82,
             release = 0x11,
             distribution_request = 0x6c,
         };
@@ -154,6 +155,13 @@ namespace DecodedTelegram {
             std::ostream& debug_repr(std::ostream& outputStream);
     };
 
+    class TrackInfoLong: public DecodedTelegram {
+        public:
+            TrackInfoLong(MasterlinkTelegram & tgram): DecodedTelegram{tgram} { }
+            TrackInfoLong(uint8_t source_id, uint8_t track_number = 0); //generates boilerplate reply telegram for a source
+            std::ostream& debug_repr(std::ostream& outputStream);
+    };
+
     class StatusInfo: public DecodedTelegram {
         public:
             enum status_info_tgram_meanings {
@@ -172,6 +180,13 @@ namespace DecodedTelegram {
         public:
             TrackText8(MasterlinkTelegram & tgram): DecodedTelegram{tgram} { }
             TrackText8(uint8_t source_id, std::string text); //generates display_data telegram with 8 chars of text
+            std::ostream& debug_repr(std::ostream& outputStream);
+    };
+
+    class TrackText12: public DecodedTelegram {
+        public:
+            TrackText12(MasterlinkTelegram & tgram): DecodedTelegram{tgram} { }
+            TrackText12(uint8_t source_id, std::string text); //generates display_data telegram with 12 chars of text
             std::ostream& debug_repr(std::ostream& outputStream);
     };
 
