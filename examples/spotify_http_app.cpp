@@ -516,6 +516,13 @@ int main(int argc, char** argv) {
 
             if (pc2 != nullptr) {
 
+                // 0. First, send DISTRIBUTION_REQUEST response to audio master
+                BOOST_LOG_TRIVIAL(debug) << "Sending DISTRIBUTION_REQUEST response";
+                DecodedTelegram::DistributionRequest dist_req(source_id);
+                dist_req.src_node = our_node;
+                dist_req.dest_node = 0xc1;  // Send to audio master
+                pc2->beolink->send_telegram(dist_req);
+
                 // 1. Send initial track text (12 chars for network sources)
                 DecodedTelegram::TrackText12 text_msg1(source_id, "SPOTIFY");
                 text_msg1.src_node = our_node;
@@ -538,7 +545,18 @@ int main(int argc, char** argv) {
                 text_msg2.src_node = our_node;
                 pc2->beolink->send_telegram(text_msg2);
 
-                // 5. Enable audio distribution to Masterlink
+                // 5. Send metadata telegrams
+                BOOST_LOG_TRIVIAL(debug) << "Sending initial metadata telegrams";
+
+                DecodedTelegram::Metadata track_metadata(source_id, DecodedTelegram::Metadata::metadata_field_type::track, "Spotify");
+                track_metadata.src_node = our_node;
+                pc2->beolink->send_telegram(track_metadata);
+
+                DecodedTelegram::Metadata artist_metadata(source_id, DecodedTelegram::Metadata::metadata_field_type::artist, "Spotify");
+                artist_metadata.src_node = our_node;
+                pc2->beolink->send_telegram(artist_metadata);
+
+                // 6. Enable audio distribution to Masterlink
                 BOOST_LOG_TRIVIAL(info) << "Enabling audio distribution";
                 pc2->mixer->ml_distribute(true);
             } else {

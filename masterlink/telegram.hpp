@@ -273,14 +273,16 @@ namespace DecodedTelegram {
                 radio = 0xa1
             };
 
-            Metadata(MasterlinkTelegram & tgram);
-            bool any_surprises_here();
             enum metadata_field_type {
                 genre = 0x01,
                 album = 0x02,
                 artist = 0x03,
                 track = 0x04,
             };
+
+            Metadata(MasterlinkTelegram & tgram);
+            Metadata(uint8_t source_id, metadata_field_type field_type, std::string value);
+            bool any_surprises_here();
 
             std::map<uint8_t, std::string> metadata_field_type_label {
                 {0x01, "genre"},

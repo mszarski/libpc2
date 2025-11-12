@@ -188,6 +188,32 @@ namespace DecodedTelegram {
         this->src = Masterlink::source::a_mem2;
     }
 
+    Metadata::Metadata(uint8_t source_id, metadata_field_type field_type, std::string value) {
+        this->telegram_type = telegram_types::info;
+        this->dest_node = 0x83;  // Broadcast to all devices
+        this->src_src = source_id;
+        this->payload_type = MasterlinkTelegram::payload_types::metadata;
+        this->payload_version = 0;
+
+        // Build payload based on raw telegram analysis:
+        // Byte 0: field_type (0x04=track, 0x03=artist, 0x02=album, 0x01=genre)
+        // Bytes 1-13: Fixed header
+        // Bytes 14+: Variable-length text value
+        this->payload = {
+            (uint8_t)field_type,  // Field type
+            0x00, 0x03, 0x01,     // Fixed header bytes
+            source_id,            // Source ID (e.g., 0x7a for N.MUSIC)
+            0x00, 0x00, 0x00,     // Fixed bytes
+            0x03, 0xe7,           // Fixed bytes
+            0x00, 0x01, 0x00, 0x01  // Fixed trailing bytes before text (14 bytes total header)
+        };
+
+        // Append the text value
+        for(char c : value) {
+            this->payload.push_back(c);
+        }
+    }
+
     DecodedTelegram *DecodedTelegramFactory::make(MasterlinkTelegram & tgram) {
         switch (tgram.payload_type) {
             case MasterlinkTelegram::payload_types::metadata:

@@ -123,16 +123,25 @@ int main(int argc, char** argv) {
 
             if (testMode) {
                 // In test mode, just log what we would send
-                BOOST_LOG_TRIVIAL(info) << "[TEST] Would send DistributionRequest (src_node=0x"
+                BOOST_LOG_TRIVIAL(info) << "[TEST] Would send DistributionRequest response (src_node=0x"
                                         << std::hex << (int)our_node
-                                        << ", dest_node=0x" << (int)from_node << ")";
-                BOOST_LOG_TRIVIAL(info) << "[TEST] Would send TrackText8: 'HELLO'";
+                                        << ", dest_node=0xc1)";
+                BOOST_LOG_TRIVIAL(info) << "[TEST] Would send TrackText12: 'HELLO'";
                 BOOST_LOG_TRIVIAL(info) << "[TEST] Would send StatusInfo";
-                BOOST_LOG_TRIVIAL(info) << "[TEST] Would send TrackInfo (track 1)";
-                BOOST_LOG_TRIVIAL(info) << "[TEST] Would send TrackText8: 'HELLO' (again)";
+                BOOST_LOG_TRIVIAL(info) << "[TEST] Would send TrackInfoLong (track 1)";
+                BOOST_LOG_TRIVIAL(info) << "[TEST] Would send Metadata (track): 'Demo Track'";
+                BOOST_LOG_TRIVIAL(info) << "[TEST] Would send Metadata (artist): 'Demo Artist'";
                 BOOST_LOG_TRIVIAL(info) << "[TEST] Would enable audio distribution";
             } else {
                 // Normal mode - actually send telegrams
+
+                // 0. First, send DISTRIBUTION_REQUEST response to audio master
+                BOOST_LOG_TRIVIAL(debug) << "Sending DISTRIBUTION_REQUEST response";
+                DecodedTelegram::DistributionRequest dist_req(source_id);
+                dist_req.src_node = our_node;
+                dist_req.dest_node = 0xc1;  // Send to audio master
+                pc2.beolink->send_telegram(dist_req);
+
                 // Repeat status telegrams 3 times like CD player does, with small delays
                 for (int repeat = 0; repeat < 3; repeat++) {
                     BOOST_LOG_TRIVIAL(debug) << "Sending status telegrams (iteration " << (repeat + 1) << "/3)";
@@ -160,7 +169,18 @@ int main(int argc, char** argv) {
                     }
                 }
 
-                // 4. Enable audio distribution to Masterlink
+                // 4. Send metadata telegrams (track info, artist, etc.)
+                BOOST_LOG_TRIVIAL(debug) << "Sending metadata telegrams";
+
+                DecodedTelegram::Metadata track_metadata(source_id, DecodedTelegram::Metadata::metadata_field_type::track, "Demo Track");
+                track_metadata.src_node = our_node;
+                pc2.beolink->send_telegram(track_metadata);
+
+                DecodedTelegram::Metadata artist_metadata(source_id, DecodedTelegram::Metadata::metadata_field_type::artist, "Demo Artist");
+                artist_metadata.src_node = our_node;
+                pc2.beolink->send_telegram(artist_metadata);
+
+                // 5. Enable audio distribution to Masterlink
                 BOOST_LOG_TRIVIAL(info) << "Enabling audio distribution";
                 pc2.mixer->ml_distribute(true);
             }
