@@ -74,9 +74,18 @@ private:
             return "";
         }
 
+        // Reset the CURL handle to clear all previous options
+        // This is critical because options like CURLOPT_POST, CURLOPT_CUSTOMREQUEST persist across calls
+        curl_easy_reset(curl);
+
         curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+
+        // Set timeouts to prevent indefinite hanging
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, 10000L);  // 10 second total timeout in milliseconds
+        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5L);  // 5 second connection timeout
+        curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);  // Don't use signals (required for timeout to work reliably in multi-threaded apps)
 
         // Set authorization header
         struct curl_slist* headers = NULL;
@@ -90,26 +99,40 @@ private:
             curl_easy_setopt(curl, CURLOPT_POST, 1L);
             if (!body.empty()) {
                 curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
+                curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)body.length());
+            } else {
+                // For POST with no body, explicitly set empty fields
+                curl_easy_setopt(curl, CURLOPT_POSTFIELDS, "");
+                curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, 0L);
             }
         } else if (method == "PUT") {
             curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "PUT");
             if (!body.empty()) {
                 curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
+                curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)body.length());
+            } else {
+                // For PUT with no body, explicitly set empty fields
+                curl_easy_setopt(curl, CURLOPT_POSTFIELDS, "");
+                curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, 0L);
             }
         } else {
             curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
         }
 
+        BOOST_LOG_TRIVIAL(debug) << "Making " << method << " request to: " << url;
         CURLcode res = curl_easy_perform(curl);
+        BOOST_LOG_TRIVIAL(debug) << "CURL perform completed with code: " << res;
 
         // Check for 401 Unauthorized (token invalid)
         long http_code = 0;
         curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+        BOOST_LOG_TRIVIAL(debug) << "HTTP response code: " << http_code;
 
         curl_slist_free_all(headers);
 
         if (res != CURLE_OK) {
-            BOOST_LOG_TRIVIAL(error) << "CURL request failed: " << curl_easy_strerror(res);
+            BOOST_LOG_TRIVIAL(error) << "CURL request failed: " << curl_easy_strerror(res)
+                                      << " (code: " << res << ")";
             return "";
         }
 
@@ -117,9 +140,18 @@ private:
         if (http_code == 401) {
             BOOST_LOG_TRIVIAL(warning) << "Got 401 Unauthorized, refreshing token...";
             if (refreshAccessToken()) {
+                BOOST_LOG_TRIVIAL(info) << "Token refreshed, retrying request";
                 // Retry the request with new token
                 return makeRequest(url, method, body);
+            } else {
+                BOOST_LOG_TRIVIAL(error) << "Failed to refresh token";
             }
+        }
+
+        // Log other HTTP error codes
+        if (http_code >= 400) {
+            BOOST_LOG_TRIVIAL(warning) << "HTTP error " << http_code << " from Spotify API";
+            BOOST_LOG_TRIVIAL(debug) << "Response: " << response;
         }
 
         return response;
@@ -173,7 +205,14 @@ private:
         curl_easy_setopt(refresh_curl, CURLOPT_WRITEFUNCTION, WriteCallback);
         curl_easy_setopt(refresh_curl, CURLOPT_WRITEDATA, &response);
 
+        // Add timeouts to prevent hanging during token refresh
+        curl_easy_setopt(refresh_curl, CURLOPT_TIMEOUT_MS, 10000L);  // 10 second timeout
+        curl_easy_setopt(refresh_curl, CURLOPT_CONNECTTIMEOUT, 5L);  // 5 second connection timeout
+        curl_easy_setopt(refresh_curl, CURLOPT_NOSIGNAL, 1L);  // Required for reliable timeouts in multi-threaded apps
+
+        BOOST_LOG_TRIVIAL(debug) << "Refreshing access token...";
         CURLcode res = curl_easy_perform(refresh_curl);
+        BOOST_LOG_TRIVIAL(debug) << "Token refresh curl_easy_perform completed with code: " << res;
         curl_slist_free_all(headers);
         curl_easy_cleanup(refresh_curl);
 
@@ -277,45 +316,43 @@ public:
         BOOST_LOG_TRIVIAL(info) << "Playing context: " << contextUri;
     }
 
-    std::string getCurrentTrack() {
+    // Get both track and artist info in a single API call
+    std::pair<std::string, std::string> getCurrentTrackInfo() {
         std::string url = apiBase + "/me/player/currently-playing";
         std::string response = makeRequest(url);
 
         if (response.empty()) {
-            return "";
+            return {"", ""};
         }
 
         try {
             auto j = json::parse(response);
+            std::string track;
+            std::string artist;
+
             if (j.contains("item") && j["item"].contains("name")) {
-                return j["item"]["name"];
+                track = j["item"]["name"];
             }
+
+            if (j.contains("item") && j["item"].contains("artists") &&
+                j["item"]["artists"].is_array() && !j["item"]["artists"].empty()) {
+                artist = j["item"]["artists"][0]["name"];
+            }
+
+            return {track, artist};
         } catch (const json::exception& e) {
             BOOST_LOG_TRIVIAL(error) << "JSON parse error: " << e.what();
         }
 
-        return "";
+        return {"", ""};
+    }
+
+    std::string getCurrentTrack() {
+        return getCurrentTrackInfo().first;
     }
 
     std::string getCurrentArtist() {
-        std::string url = apiBase + "/me/player/currently-playing";
-        std::string response = makeRequest(url);
-
-        if (response.empty()) {
-            return "";
-        }
-
-        try {
-            auto j = json::parse(response);
-            if (j.contains("item") && j["item"].contains("artists") &&
-                j["item"]["artists"].is_array() && !j["item"]["artists"].empty()) {
-                return j["item"]["artists"][0]["name"];
-            }
-        } catch (const json::exception& e) {
-            BOOST_LOG_TRIVIAL(error) << "JSON parse error: " << e.what();
-        }
-
-        return "";
+        return getCurrentTrackInfo().second;
     }
 
     bool isPlaying() {
@@ -510,7 +547,11 @@ int main(int argc, char** argv) {
 
     // Track update thread flag and state
     std::atomic<bool> trackUpdateRunning{true};
+    std::atomic<bool> trackInfoNeedsUpdate{false};  // Signal to fetch new track info
     std::string lastTrackTitle;
+    std::string lastTrackArtist;
+    std::mutex trackInfoMutex;
+    std::condition_variable trackInfoCV;
     std::atomic<uint8_t> activeSource{0};  // Track current active source
     std::atomic<uint8_t> ourNodeAddress{0xC2};  // Track our node address
 
@@ -573,11 +614,17 @@ int main(int argc, char** argv) {
                 BOOST_LOG_TRIVIAL(info) << "[TEST MODE] Skipping Masterlink telegrams (no hardware)";
             }
 
-            // 7. Start playing liked songs collection
+            // 7. Queue play command which will fetch track info after starting playback
             // Note: The collection URI might not work for all accounts
             // Alternative: use spotify->play() to resume current playback
             BOOST_LOG_TRIVIAL(info) << "Starting playback (resuming or playing liked songs)";
-            spotify->play();  // Just resume playback instead of trying to play a specific collection
+
+            // Queue the play command (non-blocking, will be processed by command thread)
+            {
+                std::lock_guard<std::mutex> lock(commandQueueMutex);
+                commandQueue.push(SpotifyCommand::PLAY);
+                commandQueueCV.notify_one();
+            }
         } else {
             // Different source requested - stop our distribution
             BOOST_LOG_TRIVIAL(info) << "Other source requested - stopping distribution";
@@ -715,25 +762,65 @@ int main(int argc, char** argv) {
                 commandQueue.pop();
                 lock.unlock();
 
+                BOOST_LOG_TRIVIAL(debug) << "Command processing thread: Processing queued command";
+
                 if (spotifyCommandThread) {
                     try {
+                        bool shouldFetchTrackInfo = false;
+
                         switch (cmd) {
                             case SpotifyCommand::PLAY:
+                                BOOST_LOG_TRIVIAL(debug) << "Command thread: Calling play()";
                                 spotifyCommandThread->play();
+                                BOOST_LOG_TRIVIAL(debug) << "Command thread: play() completed";
+                                shouldFetchTrackInfo = true;
                                 break;
                             case SpotifyCommand::PAUSE:
+                                BOOST_LOG_TRIVIAL(debug) << "Command thread: Calling pause()";
                                 spotifyCommandThread->pause();
+                                BOOST_LOG_TRIVIAL(debug) << "Command thread: pause() completed";
+                                // Don't fetch track info on pause
                                 break;
                             case SpotifyCommand::NEXT:
+                                BOOST_LOG_TRIVIAL(debug) << "Command thread: Calling next()";
                                 spotifyCommandThread->next();
+                                BOOST_LOG_TRIVIAL(debug) << "Command thread: next() completed";
+                                shouldFetchTrackInfo = true;
                                 break;
                             case SpotifyCommand::PREVIOUS:
+                                BOOST_LOG_TRIVIAL(debug) << "Command thread: Calling previous()";
                                 spotifyCommandThread->previous();
+                                BOOST_LOG_TRIVIAL(debug) << "Command thread: previous() completed";
+                                shouldFetchTrackInfo = true;
                                 break;
                         }
+
+                        // After play/next/previous, fetch updated track info
+                        if (shouldFetchTrackInfo) {
+                            // Give Spotify a moment to update the track info
+                            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+                            BOOST_LOG_TRIVIAL(debug) << "Fetching track info after playback command";
+                            auto [track, artist] = spotifyCommandThread->getCurrentTrackInfo();
+
+                            if (!track.empty()) {
+                                {
+                                    std::lock_guard<std::mutex> trackLock(trackInfoMutex);
+                                    lastTrackTitle = track;
+                                    lastTrackArtist = artist;
+                                }
+                                trackInfoNeedsUpdate.store(true);
+                                trackInfoCV.notify_one();
+                                BOOST_LOG_TRIVIAL(info) << "Track info updated: " << artist << " - " << track;
+                            }
+                        }
                     } catch (const std::exception& e) {
-                        BOOST_LOG_TRIVIAL(error) << "Error executing Spotify command: " << e.what();
+                        BOOST_LOG_TRIVIAL(error) << "Command thread: Exception executing Spotify command: " << e.what();
+                    } catch (...) {
+                        BOOST_LOG_TRIVIAL(error) << "Command thread: Unknown exception executing Spotify command";
                     }
+                } else {
+                    BOOST_LOG_TRIVIAL(error) << "Command thread: spotifyCommandThread is null!";
                 }
             }
         }
@@ -756,76 +843,72 @@ int main(int argc, char** argv) {
         std::string fullText;
         size_t scrollPosition = 0;
         auto lastScrollTime = std::chrono::steady_clock::now();
-        auto lastMetadataFetch = std::chrono::steady_clock::now();
-        const auto scrollInterval = std::chrono::seconds(2);  // Scroll every 2 seconds (was 500ms - too fast!)
-        const auto metadataInterval = std::chrono::seconds(5);  // Fetch metadata every 5 seconds
+        const auto scrollInterval = std::chrono::seconds(2);  // Scroll every 2 seconds
 
         while (trackUpdateRunning) {
             auto now = std::chrono::steady_clock::now();
 
-            // Only update metadata if we're the active source AND actually playing
-            if (activeSource != 0 && spotifyTrackThread) {
-                // Fetch metadata from Spotify API every 1 second
-                if (now - lastMetadataFetch >= metadataInterval) {
-                    lastMetadataFetch = now;
+            // Check if track info needs updating (signaled by command thread)
+            if (trackInfoNeedsUpdate.load()) {
+                trackInfoNeedsUpdate.store(false);
 
-
-                    std::string currentTrack = spotifyTrackThread->getCurrentTrack();
-                    std::string artist = spotifyTrackThread->getCurrentArtist();
-
-                    // Check if track changed
-                    if (!currentTrack.empty() && currentTrack != lastTrackTitle) {
-                        lastTrackTitle = currentTrack;
-
-                        // Build full text: "Artist - Track"
-                        if (!artist.empty()) {
-                            fullText = artist + " - " + currentTrack;
-                        } else {
-                            fullText = currentTrack;
-                        }
-
-                        // Add padding for smooth scrolling loop
-                        fullText += "    ";  // 4 spaces between loop
-
-                        BOOST_LOG_TRIVIAL(info) << "Track changed: " << artist << " - " << currentTrack;
-                        scrollPosition = 0;  // Reset scroll on track change
-                    }
+                std::string currentTrack;
+                std::string artist;
+                {
+                    std::lock_guard<std::mutex> trackLock(trackInfoMutex);
+                    currentTrack = lastTrackTitle;
+                    artist = lastTrackArtist;
                 }
 
-                // Send scrolling text every 500ms if we have text and an active source
-                if (!fullText.empty() && activeSource != 0) {
-                    // Update scroll position every scrollInterval
-                    if (now - lastScrollTime >= scrollInterval) {
-                        lastScrollTime = now;
+                // Build full text: "Artist - Track"
+                if (!currentTrack.empty()) {
+                    if (!artist.empty()) {
+                        fullText = artist + " - " + currentTrack;
+                    } else {
+                        fullText = currentTrack;
+                    }
 
-                        // Extract 12 characters starting at scrollPosition
-                        std::string displayText;
-                        if (fullText.length() <= 12) {
-                            // Text fits, no need to scroll
-                            displayText = fullText;
-                            // Pad to 12 characters
-                            while (displayText.length() < 12) {
-                                displayText += " ";
-                            }
-                        } else {
-                            // Text needs scrolling
-                            for (size_t i = 0; i < 12; i++) {
-                                displayText += fullText[(scrollPosition + i) % fullText.length()];
-                            }
+                    // Add padding for smooth scrolling loop
+                    fullText += "    ";  // 4 spaces between loop
 
-                            // Advance scroll position
-                            scrollPosition = (scrollPosition + 1) % fullText.length();
+                    BOOST_LOG_TRIVIAL(info) << "Track display updated: " << fullText;
+                    scrollPosition = 0;  // Reset scroll on track change
+                }
+            }
+
+            // Send scrolling text every 2 seconds if we have text and an active source
+            if (!fullText.empty() && activeSource != 0) {
+                // Update scroll position every scrollInterval
+                if (now - lastScrollTime >= scrollInterval) {
+                    lastScrollTime = now;
+
+                    // Extract 12 characters starting at scrollPosition
+                    std::string displayText;
+                    if (fullText.length() <= 12) {
+                        // Text fits, no need to scroll
+                        displayText = fullText;
+                        // Pad to 12 characters
+                        while (displayText.length() < 12) {
+                            displayText += " ";
+                        }
+                    } else {
+                        // Text needs scrolling
+                        for (size_t i = 0; i < 12; i++) {
+                            displayText += fullText[(scrollPosition + i) % fullText.length()];
                         }
 
-                        // Send updated track text to Masterlink using saved source (if hardware available)
-                        if (pc2 != nullptr) {
-                            DecodedTelegram::TrackText12 text_msg(activeSource, displayText);
-                            text_msg.src_node = ourNodeAddress;
-                            pc2->beolink->send_telegram(text_msg);
-                        } else {
-                            // In test mode, just log the scrolling text
-                            BOOST_LOG_TRIVIAL(debug) << "[TEST] Display: " << displayText;
-                        }
+                        // Advance scroll position
+                        scrollPosition = (scrollPosition + 1) % fullText.length();
+                    }
+
+                    // Send updated track text to Masterlink using saved source (if hardware available)
+                    if (pc2 != nullptr) {
+                        DecodedTelegram::TrackText12 text_msg(activeSource, displayText);
+                        text_msg.src_node = ourNodeAddress;
+                        pc2->beolink->send_telegram(text_msg);
+                    } else {
+                        // In test mode, just log the scrolling text
+                        BOOST_LOG_TRIVIAL(debug) << "[TEST] Display: " << displayText;
                     }
                 }
             }
