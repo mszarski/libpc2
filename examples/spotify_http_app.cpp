@@ -679,8 +679,8 @@ int main(int argc, char** argv) {
         size_t scrollPosition = 0;
         auto lastScrollTime = std::chrono::steady_clock::now();
         auto lastMetadataFetch = std::chrono::steady_clock::now();
-        const auto scrollInterval = std::chrono::milliseconds(500);  // Scroll every 500ms
-        const auto metadataInterval = std::chrono::seconds(1);       // Fetch metadata every 1 second
+        const auto scrollInterval = std::chrono::seconds(2);  // Scroll every 2 seconds (was 500ms - too fast!)
+        const auto metadataInterval = std::chrono::seconds(5);  // Fetch metadata every 5 seconds
 
         while (trackUpdateRunning) {
             auto now = std::chrono::steady_clock::now();
