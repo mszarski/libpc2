@@ -1,7 +1,4 @@
-# libpc2
+# This is a fork of libpc2
+libpc2 is a reverse-engineered B&O PC2 driver
 
-Reverse-engineered B&O PC2 driver
-
-This library is used by my Beomaster 5 alternate software, [neomaster](https://github.com/toresbe/neomaster), and my desktop software for Beolink PC2 aka Beoport PC2, [beoported](https://github.com/toresbe/beoported).
-
-Documentation will follow at some future point.
+Improvements and two new applications let this repo act as an N.MUSIC source to a Beosound 9000 streaming spotify, with full remote control and track information.
