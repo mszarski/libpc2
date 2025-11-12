@@ -108,7 +108,7 @@ namespace DecodedTelegram {
         this->src_src = source_id;
         this->payload_type = MasterlinkTelegram::payload_types::display_data;
         this->payload_version = 0;
-        this->payload = { 0x03, 0x01, 0x01, 0x00, 0x00 };
+        this->payload = { 0x03, 0x02, 0x01, 0x00, 0x00 };  // Byte 1 is 0x02 for 12-char text
 
         // Append 12 bytes of text (pad with spaces if shorter, truncate if longer)
         for(int i = 0; i < 12; i++) {
