@@ -5,6 +5,9 @@
 #include <thread>
 #include <fstream>
 #include <sstream>
+#include <queue>
+#include <mutex>
+#include <condition_variable>
 #include <boost/log/trivial.hpp>
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
@@ -17,6 +20,18 @@ using json = nlohmann::json;
 
 // Global flag for graceful shutdown
 volatile bool keepRunning = true;
+
+// Command queue for non-blocking Spotify API calls
+enum class SpotifyCommand {
+    PLAY,
+    PAUSE,
+    NEXT,
+    PREVIOUS
+};
+
+std::queue<SpotifyCommand> commandQueue;
+std::mutex commandQueueMutex;
+std::condition_variable commandQueueCV;
 
 void signalHandler(int signum) {
     std::cout << "\nInterrupt signal (" << signum << ") received. Shutting down...\n";
@@ -577,43 +592,56 @@ int main(int argc, char** argv) {
     // Register callbacks if in normal mode (with PC2 hardware)
     if (pc2 != nullptr) {
         // Register keystroke callback for Beo4 remote control
+        // IMPORTANT: This callback is called from the event loop thread and must NOT block!
+        // We queue commands here and process them in a separate thread.
         pc2->keystroke_callback = [&](Beo4::keycode keycode) {
             BOOST_LOG_TRIVIAL(info) << "Beo4 key pressed: 0x" << std::hex << (int)keycode;
+
+            SpotifyCommand cmd;
+            bool queueCommand = true;
 
             switch(keycode) {
                 case Beo4::keycode::play:
                     BOOST_LOG_TRIVIAL(info) << "Play button pressed";
-                    spotify->play();
+                    cmd = SpotifyCommand::PLAY;
                     break;
 
                 case Beo4::keycode::stop:
                     BOOST_LOG_TRIVIAL(info) << "Stop button pressed";
-                    spotify->pause();
+                    cmd = SpotifyCommand::PAUSE;
                     break;
 
                 case Beo4::keycode::arrow_right:
                     BOOST_LOG_TRIVIAL(info) << "Next track (arrow right)";
-                    spotify->next();
+                    cmd = SpotifyCommand::NEXT;
                     break;
 
                 case Beo4::keycode::arrow_left:
                     BOOST_LOG_TRIVIAL(info) << "Previous track (arrow left)";
-                    spotify->previous();
+                    cmd = SpotifyCommand::PREVIOUS;
                     break;
 
                 case Beo4::keycode::arrow_up:
                     BOOST_LOG_TRIVIAL(info) << "Arrow up pressed";
-                    // Could add volume control here if Spotify API supports it
+                    queueCommand = false;  // Not implemented yet
                     break;
 
                 case Beo4::keycode::arrow_down:
                     BOOST_LOG_TRIVIAL(info) << "Arrow down pressed";
-                    // Could add volume control here if Spotify API supports it
+                    queueCommand = false;  // Not implemented yet
                     break;
 
                 default:
                     BOOST_LOG_TRIVIAL(debug) << "Unhandled keycode: 0x" << std::hex << (int)keycode;
+                    queueCommand = false;
                     break;
+            }
+
+            // Queue the command for non-blocking processing
+            if (queueCommand) {
+                std::lock_guard<std::mutex> lock(commandQueueMutex);
+                commandQueue.push(cmd);
+                commandQueueCV.notify_one();
             }
         };
 
@@ -662,6 +690,56 @@ int main(int argc, char** argv) {
         BOOST_LOG_TRIVIAL(info) << "Test mode enabled - PC2 hardware not initialized";
         BOOST_LOG_TRIVIAL(info) << "Use keyboard commands to control playback";
     }
+
+    // Start command processing thread for non-blocking Spotify API calls
+    // This thread processes commands queued by the keystroke callback
+    // Note: This thread needs its own SpotifyHTTP instance because CURL handles are not thread-safe
+    std::shared_ptr<SpotifyHTTP> spotifyCommandThread;
+    try {
+        spotifyCommandThread = std::make_shared<SpotifyHTTP>(accessToken, refreshToken,
+                                                               clientId, clientSecret, expiresIn);
+    } catch (const std::exception& e) {
+        BOOST_LOG_TRIVIAL(error) << "Failed to create Spotify HTTP client for command thread: " << e.what();
+    }
+
+    std::thread commandProcessingThread([&, spotifyCommandThread]() {
+        BOOST_LOG_TRIVIAL(info) << "Command processing thread started";
+
+        while (keepRunning) {
+            std::unique_lock<std::mutex> lock(commandQueueMutex);
+
+            // Wait for a command with timeout to allow checking keepRunning
+            if (commandQueueCV.wait_for(lock, std::chrono::milliseconds(500),
+                                        [] { return !commandQueue.empty(); })) {
+                SpotifyCommand cmd = commandQueue.front();
+                commandQueue.pop();
+                lock.unlock();
+
+                if (spotifyCommandThread) {
+                    try {
+                        switch (cmd) {
+                            case SpotifyCommand::PLAY:
+                                spotifyCommandThread->play();
+                                break;
+                            case SpotifyCommand::PAUSE:
+                                spotifyCommandThread->pause();
+                                break;
+                            case SpotifyCommand::NEXT:
+                                spotifyCommandThread->next();
+                                break;
+                            case SpotifyCommand::PREVIOUS:
+                                spotifyCommandThread->previous();
+                                break;
+                        }
+                    } catch (const std::exception& e) {
+                        BOOST_LOG_TRIVIAL(error) << "Error executing Spotify command: " << e.what();
+                    }
+                }
+            }
+        }
+
+        BOOST_LOG_TRIVIAL(info) << "Command processing thread exiting";
+    });
 
     // Start track metadata update thread with scrolling text
     // Note: This thread needs its own SpotifyHTTP instance because CURL handles are not thread-safe
@@ -783,6 +861,10 @@ int main(int argc, char** argv) {
     }
 
     BOOST_LOG_TRIVIAL(info) << "Event loop exited. Shutting down...";
+
+    // Stop command processing thread
+    commandQueueCV.notify_all();  // Wake up the command thread
+    commandProcessingThread.join();
 
     // Stop track update thread
     trackUpdateRunning = false;
