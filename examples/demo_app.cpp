@@ -142,32 +142,22 @@ int main(int argc, char** argv) {
                 dist_req.dest_node = 0xc1;  // Send to audio master
                 pc2.beolink->send_telegram(dist_req);
 
-                // Repeat status telegrams 3 times like CD player does, with small delays
-                for (int repeat = 0; repeat < 3; repeat++) {
-                    BOOST_LOG_TRIVIAL(debug) << "Sending status telegrams (iteration " << (repeat + 1) << "/3)";
+                // 1. Send track text first (12 chars for network sources)
+                DecodedTelegram::TrackText12 text_msg(source_id, "HELLO");
+                text_msg.src_node = our_node;
+                pc2.beolink->send_telegram(text_msg);
 
-                    // 1. Send track text first (12 chars for network sources)
-                    DecodedTelegram::TrackText12 text_msg(source_id, "HELLO");
-                    text_msg.src_node = our_node;
-                    pc2.beolink->send_telegram(text_msg);
+                // 2. Send STATUS_INFO (broadcast to all devices)
+                DecodedTelegram::StatusInfo status(source_id);
+                status.src_node = our_node;
+                status.dest_node = 0x83;
+                pc2.beolink->send_telegram(status);
 
-                    // 2. Send STATUS_INFO (broadcast to all devices)
-                    DecodedTelegram::StatusInfo status(source_id);
-                    status.src_node = our_node;
-                    status.dest_node = 0x83;
-                    pc2.beolink->send_telegram(status);
-
-                    // 3. Send TRACK_INFO_LONG (to audio master)
-                    DecodedTelegram::TrackInfoLong track_info_long(source_id, 1);
-                    track_info_long.src_node = our_node;
-                    track_info_long.dest_node = 0xc1;  // Audio master
-                    pc2.beolink->send_telegram(track_info_long);
-
-                    // Small delay between repetitions (except after the last one)
-                    if (repeat < 2) {
-                        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-                    }
-                }
+                // 3. Send TRACK_INFO_LONG (to audio master)
+                DecodedTelegram::TrackInfoLong track_info_long(source_id, 1);
+                track_info_long.src_node = our_node;
+                track_info_long.dest_node = 0xc1;  // Audio master
+                pc2.beolink->send_telegram(track_info_long);
 
                 // 4. Send metadata telegrams (track info, artist, etc.)
                 BOOST_LOG_TRIVIAL(debug) << "Sending metadata telegrams";

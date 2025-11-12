@@ -540,11 +540,6 @@ int main(int argc, char** argv) {
                 track_info_long.dest_node = 0xc1;  // Audio master
                 pc2->beolink->send_telegram(track_info_long);
 
-                // 4. Send track text again for reliability
-                DecodedTelegram::TrackText12 text_msg2(source_id, "SPOTIFY");
-                text_msg2.src_node = our_node;
-                pc2->beolink->send_telegram(text_msg2);
-
                 // 5. Send metadata telegrams
                 BOOST_LOG_TRIVIAL(debug) << "Sending initial metadata telegrams";
 
@@ -725,18 +720,18 @@ int main(int argc, char** argv) {
                     if (now - lastScrollTime >= scrollInterval) {
                         lastScrollTime = now;
 
-                        // Extract 8 characters starting at scrollPosition
+                        // Extract 12 characters starting at scrollPosition
                         std::string displayText;
-                        if (fullText.length() <= 8) {
+                        if (fullText.length() <= 12) {
                             // Text fits, no need to scroll
                             displayText = fullText;
-                            // Pad to 8 characters
-                            while (displayText.length() < 8) {
+                            // Pad to 12 characters
+                            while (displayText.length() < 12) {
                                 displayText += " ";
                             }
                         } else {
                             // Text needs scrolling
-                            for (size_t i = 0; i < 8; i++) {
+                            for (size_t i = 0; i < 12; i++) {
                                 displayText += fullText[(scrollPosition + i) % fullText.length()];
                             }
 
@@ -746,7 +741,7 @@ int main(int argc, char** argv) {
 
                         // Send updated track text to Masterlink using saved source (if hardware available)
                         if (pc2 != nullptr) {
-                            DecodedTelegram::TrackText8 text_msg(activeSource, displayText);
+                            DecodedTelegram::TrackText12 text_msg(activeSource, displayText);
                             text_msg.src_node = ourNodeAddress;
                             pc2->beolink->send_telegram(text_msg);
                         } else {
