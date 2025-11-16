@@ -244,21 +244,32 @@ private:
 
     void saveTokens(const json& tokens) {
         std::string tokenFile = std::string(getenv("HOME")) + "/.spotify_tokens";
+
+        // IMPORTANT: Read existing tokens BEFORE opening file for writing
+        // (opening with std::ofstream truncates the file immediately!)
+        json existingTokens;
+        std::ifstream existing(tokenFile);
+        if (existing.is_open()) {
+            try {
+                existing >> existingTokens;
+            } catch (const json::exception& e) {
+                BOOST_LOG_TRIVIAL(warning) << "Could not parse existing tokens file: " << e.what();
+            }
+            existing.close();
+        }
+
+        // Merge new tokens with existing ones
+        json toSave = existingTokens;
+        toSave.update(tokens);
+
+        // NOW open file for writing
         std::ofstream file(tokenFile);
         if (file.is_open()) {
-            // Read existing tokens to preserve refresh_token if not in response
-            std::ifstream existing(tokenFile);
-            json existingTokens;
-            if (existing.is_open()) {
-                existing >> existingTokens;
-                existing.close();
-            }
-
-            json toSave = existingTokens;
-            toSave.update(tokens);
-
             file << toSave.dump(2);
             file.close();
+            BOOST_LOG_TRIVIAL(debug) << "Tokens saved to " << tokenFile;
+        } else {
+            BOOST_LOG_TRIVIAL(error) << "Failed to open token file for writing: " << tokenFile;
         }
     }
 
@@ -374,6 +385,66 @@ public:
 
         return false;
     }
+
+    // Spotify Connect device structure
+    struct Device {
+        std::string id;
+        std::string name;
+        std::string type;
+        bool is_active;
+        int volume_percent;
+        bool supports_volume;
+    };
+
+    // Get available Spotify Connect devices
+    std::vector<Device> getDevices() {
+        std::string url = apiBase + "/me/player/devices";
+        std::string response = makeRequest(url);
+        std::vector<Device> devices;
+
+        if (response.empty()) {
+            BOOST_LOG_TRIVIAL(warning) << "Empty response from devices endpoint";
+            return devices;
+        }
+
+        try {
+            auto j = json::parse(response);
+            if (j.contains("devices") && j["devices"].is_array()) {
+                for (const auto& device_json : j["devices"]) {
+                    Device device;
+                    device.id = device_json.value("id", "");
+                    device.name = device_json.value("name", "Unknown");
+                    device.type = device_json.value("type", "unknown");
+                    device.is_active = device_json.value("is_active", false);
+                    device.volume_percent = device_json.value("volume_percent", 0);
+                    device.supports_volume = device_json.value("supports_volume", false);
+                    devices.push_back(device);
+                }
+                BOOST_LOG_TRIVIAL(info) << "Found " << devices.size() << " Spotify Connect device(s)";
+            }
+        } catch (const json::exception& e) {
+            BOOST_LOG_TRIVIAL(error) << "JSON parse error in getDevices: " << e.what();
+        }
+
+        return devices;
+    }
+
+    // Transfer playback to a specific device
+    bool transferPlayback(const std::string& deviceId, bool startPlaying = true) {
+        std::string url = apiBase + "/me/player";
+
+        json body = {
+            {"device_ids", json::array({deviceId})},
+            {"play", startPlaying}
+        };
+
+        std::string response = makeRequest(url, "PUT", body.dump());
+
+        // 204 No Content is success for this endpoint
+        BOOST_LOG_TRIVIAL(info) << "Transfer playback to device " << deviceId
+                                << " (play=" << startPlaying << ")";
+        return true;
+    }
 };
 
 // Interface implementation for Spotify control
@@ -399,8 +470,13 @@ void keyboardInputThread(std::shared_ptr<SpotifyHTTP> spotify,
     std::cout << "  n - Next track\n";
     std::cout << "  b - Previous track (back)\n";
     std::cout << "  t - Trigger source selection (test Masterlink flow)\n";
+    std::cout << "  d - List Spotify Connect devices\n";
+    std::cout << "  0-9 - Transfer playback to device number\n";
     std::cout << "  q - Quit\n";
     std::cout << "=========================\n\n";
+
+    // Store devices list for device selection
+    std::vector<SpotifyHTTP::Device> availableDevices;
 
     while (running) {
         char input;
@@ -426,6 +502,40 @@ void keyboardInputThread(std::shared_ptr<SpotifyHTTP> spotify,
             case 't':
                 std::cout << "[TEST] Triggering source selection (A.MEM2 = 0x7A)\n";
                 triggerSourceCallback();
+                break;
+            case 'd':
+                std::cout << "[TEST] Listing Spotify Connect devices...\n";
+                availableDevices = spotify->getDevices();
+                if (availableDevices.empty()) {
+                    std::cout << "  No devices found. Make sure you have Spotify open on a device.\n";
+                } else {
+                    std::cout << "\n  Available Spotify Connect Devices:\n";
+                    for (size_t i = 0; i < availableDevices.size(); i++) {
+                        const auto& dev = availableDevices[i];
+                        std::cout << "  [" << i << "] " << dev.name
+                                  << " (" << dev.type << ")"
+                                  << (dev.is_active ? " [ACTIVE]" : "")
+                                  << " - Volume: " << dev.volume_percent << "%\n";
+                    }
+                    std::cout << "\n  Press 0-" << (availableDevices.size() - 1)
+                              << " to transfer playback to a device\n\n";
+                }
+                break;
+            case '0': case '1': case '2': case '3': case '4':
+            case '5': case '6': case '7': case '8': case '9':
+                {
+                    int deviceIndex = input - '0';
+                    if (availableDevices.empty()) {
+                        std::cout << "[TEST] No devices list available. Press 'd' first.\n";
+                    } else if (deviceIndex >= 0 && deviceIndex < static_cast<int>(availableDevices.size())) {
+                        const auto& selectedDevice = availableDevices[deviceIndex];
+                        std::cout << "[TEST] Transferring playback to: " << selectedDevice.name << "\n";
+                        spotify->transferPlayback(selectedDevice.id, true);
+                    } else {
+                        std::cout << "[TEST] Invalid device number. Valid range: 0-"
+                                  << (availableDevices.size() - 1) << "\n";
+                    }
+                }
                 break;
             case 'q':
                 std::cout << "[TEST] Quit requested\n";
