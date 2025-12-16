@@ -696,6 +696,7 @@ int main(int argc, char** argv) {
         // Check if this is our Spotify source (A.MEM2 = 0x7A)
         if (source_id == Masterlink::source::a_mem2) {
             BOOST_LOG_TRIVIAL(info) << "Starting Spotify source";
+            BOOST_LOG_TRIVIAL(debug) << "pc2 pointer is: " << (pc2 != nullptr ? "valid" : "NULL");
 
             // Save the active source and our node address for the track update thread
             activeSource.store(source_id);
@@ -740,12 +741,24 @@ int main(int argc, char** argv) {
 
                 // 6. Enable audio distribution to Masterlink and local output (Powerlink)
                 BOOST_LOG_TRIVIAL(info) << "Enabling audio distribution";
+                BOOST_LOG_TRIVIAL(debug) << "Step 1: Powering on speakers";
                 pc2->mixer->speaker_power(true);     // Power on speakers
+
+                // Give speakers time to power on and stabilize before setting routing
+                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+                BOOST_LOG_TRIVIAL(debug) << "Step 2: Enabling local transmission (Powerlink)";
                 pc2->mixer->transmit_locally(true);  // Enable Powerlink output
+
+                std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+                BOOST_LOG_TRIVIAL(debug) << "Step 3: Enabling Masterlink distribution";
                 pc2->mixer->ml_distribute(true);     // Enable Masterlink distribution
 
-                // 7. Set initial volume to a reasonable level (0x50 = 80 decimal, ~63%)
-                pc2->mixer->set_parameters(0x50, 0, 0, 0, false);
+                BOOST_LOG_TRIVIAL(debug) << "Step 4: Setting initial mixer parameters";
+                pc2->mixer->set_parameters(0x50, 0, 0, 0, false);  // Set volume to 0x50 (~63%)
+
+                BOOST_LOG_TRIVIAL(info) << "Audio distribution enabled, waiting for playback to start...";
             } else {
                 BOOST_LOG_TRIVIAL(info) << "[TEST MODE] Skipping Masterlink telegrams (no hardware)";
             }
@@ -1099,13 +1112,23 @@ int main(int argc, char** argv) {
     // Properly shutdown audio before cleaning up
     if (pc2 != nullptr && activeSource.load() != 0) {
         BOOST_LOG_TRIVIAL(info) << "Shutting down audio distribution";
+
+        // 1. Pause playback first
         spotify->pause();
-        pc2->mixer->transmit_locally(false);
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+        // 2. Stop Masterlink distribution
         pc2->mixer->ml_distribute(false);
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+        // 3. Stop local transmission (Powerlink output)
+        pc2->mixer->transmit_locally(false);
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+        // 4. Finally power down speakers
         pc2->mixer->speaker_power(false);
         activeSource.store(0);
-        // Give hardware time to process shutdown commands
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
     }
 
     // Stop command processing thread
