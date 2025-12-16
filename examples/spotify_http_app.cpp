@@ -1096,6 +1096,18 @@ int main(int argc, char** argv) {
 
     BOOST_LOG_TRIVIAL(info) << "Event loop exited. Shutting down...";
 
+    // Properly shutdown audio before cleaning up
+    if (pc2 != nullptr && activeSource.load() != 0) {
+        BOOST_LOG_TRIVIAL(info) << "Shutting down audio distribution";
+        spotify->pause();
+        pc2->mixer->transmit_locally(false);
+        pc2->mixer->ml_distribute(false);
+        pc2->mixer->speaker_power(false);
+        activeSource.store(0);
+        // Give hardware time to process shutdown commands
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+
     // Stop command processing thread
     commandQueueCV.notify_all();  // Wake up the command thread
     commandProcessingThread.join();
