@@ -463,12 +463,15 @@ public:
 // Keyboard input thread for testing without Beo4 remote
 void keyboardInputThread(std::shared_ptr<SpotifyHTTP> spotify,
                          std::function<void()> triggerSourceCallback,
+                         PC2* pc2,
                          volatile bool& running) {
     std::cout << "\n=== Keyboard Controls ===\n";
     std::cout << "  p - Play\n";
     std::cout << "  s - Stop/Pause\n";
     std::cout << "  n - Next track\n";
     std::cout << "  b - Previous track (back)\n";
+    std::cout << "  + - Volume up\n";
+    std::cout << "  - - Volume down\n";
     std::cout << "  t - Trigger source selection (test Masterlink flow)\n";
     std::cout << "  d - List Spotify Connect devices\n";
     std::cout << "  0-9 - Transfer playback to device number\n";
@@ -502,6 +505,24 @@ void keyboardInputThread(std::shared_ptr<SpotifyHTTP> spotify,
             case 't':
                 std::cout << "[TEST] Triggering source selection (A.MEM2 = 0x7A)\n";
                 triggerSourceCallback();
+                break;
+            case '+':
+            case '=':  // Allow = key (same as + without shift)
+                if (pc2 != nullptr) {
+                    std::cout << "[TEST] Volume up\n";
+                    pc2->mixer->adjust_volume(5);
+                } else {
+                    std::cout << "[TEST] Volume control not available in test mode\n";
+                }
+                break;
+            case '-':
+            case '_':
+                if (pc2 != nullptr) {
+                    std::cout << "[TEST] Volume down\n";
+                    pc2->mixer->adjust_volume(-5);
+                } else {
+                    std::cout << "[TEST] Volume control not available in test mode\n";
+                }
                 break;
             case 'd':
                 std::cout << "[TEST] Listing Spotify Connect devices...\n";
@@ -717,9 +738,14 @@ int main(int argc, char** argv) {
                 artist_metadata.src_node = our_node;
                 pc2->beolink->send_telegram(artist_metadata);
 
-                // 6. Enable audio distribution to Masterlink
+                // 6. Enable audio distribution to Masterlink and local output (Powerlink)
                 BOOST_LOG_TRIVIAL(info) << "Enabling audio distribution";
-                pc2->mixer->ml_distribute(true);
+                pc2->mixer->speaker_power(true);     // Power on speakers
+                pc2->mixer->transmit_locally(true);  // Enable Powerlink output
+                pc2->mixer->ml_distribute(true);     // Enable Masterlink distribution
+
+                // 7. Set initial volume to a reasonable level (0x50 = 80 decimal, ~63%)
+                pc2->mixer->set_parameters(0x50, 0, 0, 0, false);
             } else {
                 BOOST_LOG_TRIVIAL(info) << "[TEST MODE] Skipping Masterlink telegrams (no hardware)";
             }
@@ -740,7 +766,9 @@ int main(int argc, char** argv) {
             BOOST_LOG_TRIVIAL(info) << "Other source requested - stopping distribution";
             activeSource.store(0);  // Clear active source
             if (pc2 != nullptr) {
+                pc2->mixer->transmit_locally(false);
                 pc2->mixer->ml_distribute(false);
+                pc2->mixer->speaker_power(false);
             }
             spotify->pause();
         }
@@ -788,6 +816,18 @@ int main(int argc, char** argv) {
                     queueCommand = false;  // Not implemented yet
                     break;
 
+                case Beo4::keycode::vol_up:
+                    BOOST_LOG_TRIVIAL(info) << "Volume up";
+                    pc2->mixer->adjust_volume(5);
+                    queueCommand = false;
+                    break;
+
+                case Beo4::keycode::vol_down:
+                    BOOST_LOG_TRIVIAL(info) << "Volume down";
+                    pc2->mixer->adjust_volume(-5);
+                    queueCommand = false;
+                    break;
+
                 default:
                     BOOST_LOG_TRIVIAL(debug) << "Unhandled keycode: 0x" << std::hex << (int)keycode;
                     queueCommand = false;
@@ -818,7 +858,9 @@ int main(int argc, char** argv) {
                                         << std::hex << (int)our_source
                                         << ") - stopping Spotify and distribution";
                 activeSource.store(0);
+                pc2->mixer->transmit_locally(false);
                 pc2->mixer->ml_distribute(false);
+                pc2->mixer->speaker_power(false);
                 spotify->pause();
             }
         };
@@ -827,7 +869,9 @@ int main(int argc, char** argv) {
         pc2->release_callback = [&]() {
             BOOST_LOG_TRIVIAL(info) << "RELEASE/Standby received - stopping Spotify and distribution";
             activeSource.store(0);
+            pc2->mixer->transmit_locally(false);
             pc2->mixer->ml_distribute(false);
+            pc2->mixer->speaker_power(false);
             spotify->pause();
         };
 
@@ -1030,19 +1074,16 @@ int main(int argc, char** argv) {
 
     BOOST_LOG_TRIVIAL(info) << "Spotify Web API ready with automatic token refresh";
 
-    // Start keyboard input thread in test mode
-    std::thread* keyboardThread = nullptr;
-    if (testMode) {
-        // Create a lambda that calls handleSourceRequest with test parameters
-        auto triggerSource = [&]() {
-            handleSourceRequest(Masterlink::source::a_mem2, 0xC2, 0xC1);
-        };
+    // Start keyboard input thread (available in both test and normal modes)
+    // Create a lambda that calls handleSourceRequest with test parameters
+    auto triggerSource = [&]() {
+        handleSourceRequest(Masterlink::source::a_mem2, 0xC2, 0xC1);
+    };
 
-        keyboardThread = new std::thread(keyboardInputThread, spotify, triggerSource, std::ref(keepRunning));
-    }
+    std::thread* keyboardThread = new std::thread(keyboardInputThread, spotify, triggerSource, pc2, std::ref(keepRunning));
 
     if (pc2 != nullptr) {
-        BOOST_LOG_TRIVIAL(info) << "Entering event loop. Press Ctrl+C to exit.";
+        BOOST_LOG_TRIVIAL(info) << "Entering event loop. Use keyboard commands or Beo4 remote. Press Ctrl+C to exit.";
         // Run the event loop
         pc2->event_loop(keepRunning);
     } else {
@@ -1063,11 +1104,9 @@ int main(int argc, char** argv) {
     trackUpdateRunning = false;
     trackUpdateThread.join();
 
-    // Stop keyboard thread if running
-    if (keyboardThread != nullptr) {
-        keyboardThread->join();
-        delete keyboardThread;
-    }
+    // Stop keyboard thread
+    keyboardThread->join();
+    delete keyboardThread;
 
     // Cleanup
     if (pc2 != nullptr) {
