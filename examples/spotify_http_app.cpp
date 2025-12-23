@@ -52,9 +52,11 @@ private:
     std::string refreshToken;
     std::string clientId;
     std::string clientSecret;
+    std::string defaultDeviceId;
     std::chrono::steady_clock::time_point tokenExpiry;
     const std::string apiBase = "https://api.spotify.com/v1";
     const std::string tokenUrl = "https://accounts.spotify.com/api/token";
+    const std::string defaultDeviceFile = std::string(getenv("HOME")) + "/.spotify_default_device";
 
     std::string makeRequest(const std::string& url, const std::string& method = "GET",
                            const std::string& body = "") {
@@ -273,6 +275,17 @@ private:
         }
     }
 
+    void loadDefaultDevice() {
+        std::ifstream file(defaultDeviceFile);
+        if (file.is_open()) {
+            std::getline(file, defaultDeviceId);
+            file.close();
+            if (!defaultDeviceId.empty()) {
+                BOOST_LOG_TRIVIAL(info) << "Loaded default device ID: " << defaultDeviceId;
+            }
+        }
+    }
+
 public:
     SpotifyHTTP(const std::string& access, const std::string& refresh,
                 const std::string& clientId, const std::string& clientSecret, int expiresIn)
@@ -297,9 +310,38 @@ public:
     }
 
     void play() {
-        std::string url = apiBase + "/me/player/play";
-        makeRequest(url, "PUT");
-        BOOST_LOG_TRIVIAL(info) << "Sent Play command to Spotify";
+        // Load default device if configured
+        loadDefaultDevice();
+        if (!defaultDeviceId.empty()) {
+            // Check if default device is already active
+            bool needsTransfer = true;
+            auto devices = getDevices();
+            for (const auto& dev : devices) {
+                if (dev.id == defaultDeviceId && dev.is_active) {
+                    BOOST_LOG_TRIVIAL(info) << "Default device already active, sending play";
+                    needsTransfer = false;
+                    break;
+                }
+            }
+
+            if (needsTransfer) {
+                BOOST_LOG_TRIVIAL(info) << "Transferring to default device: " << defaultDeviceId;
+                transferPlayback(defaultDeviceId, false);
+                // Give Spotify time to complete the transfer, then send play
+                std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+                std::string url = apiBase + "/me/player/play";
+                makeRequest(url, "PUT");
+                BOOST_LOG_TRIVIAL(info) << "Sent Play command after transfer";
+            } else {
+                std::string url = apiBase + "/me/player/play";
+                makeRequest(url, "PUT");
+                BOOST_LOG_TRIVIAL(info) << "Sent Play command to Spotify";
+            }
+        } else {
+            std::string url = apiBase + "/me/player/play";
+            makeRequest(url, "PUT");
+            BOOST_LOG_TRIVIAL(info) << "Sent Play command to Spotify";
+        }
     }
 
     void pause() {
@@ -445,6 +487,26 @@ public:
                                 << " (play=" << startPlaying << ")";
         return true;
     }
+
+    // Save a device as the default for playback
+    void saveDefaultDevice(const std::string& deviceId) {
+        std::ofstream file(defaultDeviceFile);
+        if (file.is_open()) {
+            file << deviceId;
+            file.close();
+            defaultDeviceId = deviceId;
+            BOOST_LOG_TRIVIAL(info) << "Saved default device: " << deviceId;
+        } else {
+            BOOST_LOG_TRIVIAL(error) << "Failed to save default device to: " << defaultDeviceFile;
+        }
+    }
+
+    // Clear the default device
+    void clearDefaultDevice() {
+        std::remove(defaultDeviceFile.c_str());
+        defaultDeviceId.clear();
+        BOOST_LOG_TRIVIAL(info) << "Cleared default device";
+    }
 };
 
 // Interface implementation for Spotify control
@@ -472,11 +534,14 @@ void keyboardInputThread(std::shared_ptr<SpotifyHTTP> spotify,
     std::cout << "  t - Trigger source selection (test Masterlink flow)\n";
     std::cout << "  d - List Spotify Connect devices\n";
     std::cout << "  0-9 - Transfer playback to device number\n";
+    std::cout << "  D - Set device as default (press d first, then D followed by number)\n";
+    std::cout << "  c - Clear default device\n";
     std::cout << "  q - Quit\n";
     std::cout << "=========================\n\n";
 
     // Store devices list for device selection
     std::vector<SpotifyHTTP::Device> availableDevices;
+    bool setDefaultMode = false;  // When true, next number sets default instead of transferring
 
     while (running) {
         char input;
@@ -529,13 +594,32 @@ void keyboardInputThread(std::shared_ptr<SpotifyHTTP> spotify,
                         std::cout << "[TEST] No devices list available. Press 'd' first.\n";
                     } else if (deviceIndex >= 0 && deviceIndex < static_cast<int>(availableDevices.size())) {
                         const auto& selectedDevice = availableDevices[deviceIndex];
-                        std::cout << "[TEST] Transferring playback to: " << selectedDevice.name << "\n";
-                        spotify->transferPlayback(selectedDevice.id, true);
+                        if (setDefaultMode) {
+                            std::cout << "[TEST] Setting default device to: " << selectedDevice.name << "\n";
+                            spotify->saveDefaultDevice(selectedDevice.id);
+                            setDefaultMode = false;
+                        } else {
+                            std::cout << "[TEST] Transferring playback to: " << selectedDevice.name << "\n";
+                            spotify->transferPlayback(selectedDevice.id, true);
+                        }
                     } else {
                         std::cout << "[TEST] Invalid device number. Valid range: 0-"
                                   << (availableDevices.size() - 1) << "\n";
                     }
                 }
+                break;
+            case 'D':
+                if (availableDevices.empty()) {
+                    std::cout << "[TEST] No devices list available. Press 'd' first, then 'D' and a number.\n";
+                } else {
+                    setDefaultMode = true;
+                    std::cout << "[TEST] Default mode: Press 0-" << (availableDevices.size() - 1)
+                              << " to set that device as default\n";
+                }
+                break;
+            case 'c':
+                std::cout << "[TEST] Clearing default device\n";
+                spotify->clearDefaultDevice();
                 break;
             case 'q':
                 std::cout << "[TEST] Quit requested\n";
