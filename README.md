@@ -9,3 +9,4 @@ sudo apt-get install cmake build-essential git
 sudo apt-get install libboost-all-dev
 sudo apt-get install libusb-1.0-0-dev
 sudo apt-get install libcurl4-openssl-dev
+sudo apt-get install nlohmann-json3-dev
