@@ -1037,12 +1037,30 @@ int main(int argc, char** argv) {
         std::string fullText;
         size_t scrollPosition = 0;
         auto lastScrollTime = std::chrono::steady_clock::now();
+        auto lastPollTime = std::chrono::steady_clock::now();
         const auto scrollInterval = std::chrono::seconds(2);  // Scroll every 2 seconds
+        const auto pollInterval = std::chrono::seconds(5);    // Poll Spotify every 5 seconds
 
         while (trackUpdateRunning) {
             auto now = std::chrono::steady_clock::now();
 
-            // Check if track info needs updating (signaled by command thread)
+            // Periodically poll Spotify for track changes when we have an active source
+            if (activeSource != 0 && spotifyTrackThread && now - lastPollTime >= pollInterval) {
+                lastPollTime = now;
+
+                auto [track, artist] = spotifyTrackThread->getCurrentTrackInfo();
+                if (!track.empty()) {
+                    std::lock_guard<std::mutex> trackLock(trackInfoMutex);
+                    if (track != lastTrackTitle || artist != lastTrackArtist) {
+                        lastTrackTitle = track;
+                        lastTrackArtist = artist;
+                        trackInfoNeedsUpdate.store(true);
+                        BOOST_LOG_TRIVIAL(info) << "Track changed (polled): " << artist << " - " << track;
+                    }
+                }
+            }
+
+            // Check if track info needs updating (signaled by command thread or polling)
             if (trackInfoNeedsUpdate.load()) {
                 trackInfoNeedsUpdate.store(false);
 
