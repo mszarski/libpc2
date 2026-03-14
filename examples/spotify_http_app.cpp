@@ -342,6 +342,9 @@ public:
             makeRequest(url, "PUT");
             BOOST_LOG_TRIVIAL(info) << "Sent Play command to Spotify";
         }
+
+        // Set initial volume to 90%
+        setVolume(90);
     }
 
     void pause() {
@@ -506,6 +509,15 @@ public:
         std::remove(defaultDeviceFile.c_str());
         defaultDeviceId.clear();
         BOOST_LOG_TRIVIAL(info) << "Cleared default device";
+    }
+
+    // Set playback volume (0-100)
+    void setVolume(int volumePercent) {
+        if (volumePercent < 0) volumePercent = 0;
+        if (volumePercent > 100) volumePercent = 100;
+        std::string url = apiBase + "/me/player/volume?volume_percent=" + std::to_string(volumePercent);
+        makeRequest(url, "PUT");
+        BOOST_LOG_TRIVIAL(info) << "Set volume to " << volumePercent << "%";
     }
 };
 
